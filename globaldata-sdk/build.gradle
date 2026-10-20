@@ -1,0 +1,8 @@
+buildscript {
+    repositories { google(); mavenCentral() }
+    dependencies { classpath 'com.android.tools.build:gradle:8.6.1' }
+}
+subprojects {
+    group = 'com.oem.globaldata'
+    version = '4.0.0'
+}

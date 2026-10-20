@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="utf-8"?>
+<layout xmlns:android="http://schemas.android.com/apk/res/android">
+    <data />
+    <ScrollView
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:fillViewport="true">
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="16dp">
+            <TextView
+                android:id="@+id/status"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="等待操作"
+                android:textSize="17sp" />
+            <TextView
+                android:id="@+id/explanation"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="文件持久化 · SET。String 使用 enabled_feature_flags；其他类型各有独立 Key。先安装 App2，再授权并写入。空 Set 是有效值。"
+                android:textSize="17sp" />
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="选择集合数据类型（String / Integer / Long / Float / Double / Boolean）" />
+            <Spinner
+                android:id="@+id/typeSelector"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:entries="@array/collection_value_types" />
+            <EditText
+                android:id="@+id/flagsInput"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="wifi,bluetooth"
+                android:hint="逗号分隔；空输入写入空 Set，重复项会拒绝"
+                android:inputType="text" />
+            <Button
+                android:id="@+id/initialButton"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="1. 授权并写入初始 Set" />
+            <Button
+                android:id="@+id/updateButton"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="2. 写入输入的 Set" />
+        </LinearLayout>
+    </ScrollView>
+</layout>

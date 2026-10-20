@@ -1,0 +1,332 @@
+# GlobalData 客户端接口调用指南
+
+本文对应当前工程的 Android 16 实现，协议版本为 **1.1**。客户端源码在 `globaldata-sdk/`，系统侧源码在 `aosp-patch/`。本文说明代码实际提供的接口与行为；系统镜像和设备运行仍须在目标 AOSP/厂商源码中验证。系统接入步骤见 `../aosp-patch/INTEGRATION.md`。
+
+第一次接触本工程，建议先按 [App1 写入 int、App2 读取并监听的最小演示](../SHARED_INT_DEMO.md) 操作一遍，再查看 [33 类数据及双向事件目录](../DEMO_CATALOG.md)。
+
+## 1. 先看全貌
+
+```text
+App1 / App2 业务代码
+  ├─ device-contracts：DeviceConfig、DeviceDataKeys、DeviceTopics、Repository
+  └─ client：GlobalDataManager、GlobalStore、DataKey、Codec、EventBus
+       └─ ipc：Wire + IGlobalDataTransport / IDataObserver / IEventListener
+            └─ 设备公开 API：GlobalDataBridge.getTransportBinder()
+                 └─ system_server：GlobalDataSystemService.Transport
+                      ├─ AccessController：调用 UID、owner、签名、作用域、授权
+                      ├─ MemoryBackend / FileBackend / DatabaseBackend
+                      ├─ DataObservers：数据变更通知
+                      └─ EventHub：无载荷在线事件
+```
+
+业务对象只在 App 和 Contracts AAR 中编码/解码。Binder 传输的是地址、元信息和 `byte[]`，`system_server` 不加载 `DeviceConfig` 等业务类。普通 App 使用 `GlobalDataSdk.connect()`，无需也不应直接调用隐藏的 `ServiceManager` API。
+
+### 工程依赖和运行前提
+
+- 独立 SDK 模块：`ipc`（AIDL/常量）、`client`（通用 API）、`device-contracts`（示例业务契约）。依赖 `com.oem.globaldata:device-contracts:4.0.0` 时，Maven 元数据会传递依赖 `client` 和 `ipc`；只使用通用 SDK 可直接依赖 `client`。
+- `bridge-stubs` 仅供编译，不能作为运行时库放入 APK。运行设备必须刷入含真实 `android.globaldata.GlobalDataBridge` 和 `globaldata` 服务的系统镜像；缺少它会得到 `STORAGE_UNAVAILABLE`。
+- 示例 App 的 `BuildConfig.SYSTEM_SCOPE` 只选择示例地址：`false` 为普通 App 的 `USER_CE`/`share.com.oem.globaldata.app1`，`true` 为平台示例的 `DEVICE_DE`/`sys.device`。它不授予权限；服务端检查真实 UID 与签名。两个 App 测同一份数据时要使用同一构建模式。
+- 对于其他业务，直接定义固定作用域的 `DataKey<T>` 和 `EventTopic` 即可，无须沿用 `SYSTEM_SCOPE` 布尔参数。
+
+## 2. 一次完整调用
+
+以 `manager.put(DeviceDataKeys.memoryIntOperationCount(false), 9999)` 为例：
+
+1. `DeviceDataKeys.memoryIntOperationCount(false)` 生成地址：`MEMORY + USER_CE + App1 owner 包 + share namespace + operation_count key`，并指定 `Codecs.INT`。
+2. `GlobalDataManager.put` 在该 manager 的单线程 I/O 执行器上将 `9999` 编码为 4 字节；连同 schema ID、schema version、encoding 放入 `Bundle`。单值超过 64 KiB 时客户端先拒绝。
+3. 第一次访问时，SDK 从公开 Bridge 取得 Binder，调用 `getCapabilities()`，检查协议 major/minor、最大载荷和功能位。之后调用 AIDL `write(..., UPSERT, -1)`。
+4. 服务端从 `Binder.getCallingUid()` 得到真实 UID，按 UID 推导 User ID；校验地址与载荷，检查 CE 是否已解锁、owner 包与签名、namespace 规则及 `WRITE` 权限。请求里传的 owner 只是资源地址，不能伪造调用身份。
+5. 存储线程执行对应 Backend 的写入和 revision 更新；File/SQLite 提交后才返回成功。成功后 `DataObservers` 向仍有 `OBSERVE` 权限的在线订阅者发送变更提示。
+6. SDK 将结果转为 `WriteResult(revision, serviceEpoch)`，完成 `CompletableFuture`。回调不是自动在主线程执行，更新界面时需切到 UI 线程。
+
+读取的反向链路是 `read` → AIDL `read` → ACL → Backend → `StoredValue` 字节与 schema →客户端 `ValueCodec.decode` → `DataSnapshot<T>`。通知只提示数据已变化；SDK 接到 `onDataChanged` 后**重新读取当前值**，因此不能把通知次数当作精确写入次数。
+
+## 3. 地址、类型和作用域
+
+### `DataKey<T>` 与 `EventTopic`
+
+| 接口/字段 | 用法 |
+|---|---|
+| `DataKey.of(store, scope, ownerPackage, namespace, key, codec)` | 定义一个有类型的数据地址。`store` 选三种 Backend；`codec` 决定客户端的编码和解码。`ownerPackage` 必须是实际资源所有者包。 |
+| `DataKey.store/scope/ownerPackage/namespace/key/codec` | 不可变地址及类型元数据，可用于业务代码检查。 |
+| `DataKey.wire()` | 将地址装入协议 `Bundle`；通常由 SDK 内部使用。不会把 Codec 或 POJO 送给系统。 |
+| `EventTopic.of(scope, ownerPackage, topic)` | 定义无载荷事件地址。事件没有 Store，也没有数据 Key。 |
+| `EventTopic.scope/ownerPackage/topic` | 事件地址字段。 |
+| `EventTopic.wire()` | 将事件地址装入 `Bundle`；通常由 SDK 内部使用。 |
+
+三个 Store 常量：`Wire.MEMORY`、`Wire.FILE`、`Wire.DATABASE`。即使 owner、namespace、key 完全相同，三种 Store 的值也彼此独立。
+
+| Scope | 含义 | 当前实现中的访问与路径 |
+|---|---|---|
+| `Wire.DEVICE_DE` | 设备级设备加密数据，资源 User ID 归一为 0。 | 仅系统 UID 或平台签名 UID 可访问；持久化后端写入 `/data/system_de/0/globaldata/`。 |
+| `Wire.USER_DE` | 当前调用用户的设备加密数据。 | 按真实 UID 所属 User 隔离；持久化后端写入该 User 的 `/data/system_de/<userId>/globaldata/`。 |
+| `Wire.USER_CE` | 当前调用用户的凭据加密数据。 | 未解锁返回 `LOCKED`；持久化后端写入该 User 的 `/data/system_ce/<userId>/globaldata/`。普通双 App 示例使用此作用域。 |
+
+普通数据 namespace 必须是 `share.<ownerPackage>` 或 `app.<ownerPackage>`；事件 topic 必须以 `events.<ownerPackage>/` 开头。`sys.*` 命名空间/主题只允许平台签名或系统 UID。名称由服务端校验，非空、最多 180 字符，只接受规定的 ASCII 字符并拒绝 `..` 等危险片段。`DEVICE_DE` 的平台身份要求与 owner/ACL 要求同时适用。
+
+### `ValueCodec<T>` 与已有 Codec
+
+| 方法 | 作用 |
+|---|---|
+| `schemaId()` | 稳定的业务类型标识；读取时 SDK 要求存储值的 schema ID 与当前 Key 的 Codec 相同。 |
+| `schemaVersion()` | 新写入值使用的正整数版本。 |
+| `encoding()` | 字节格式说明，例如 `json-utf8`。服务端存储此字符串，不解释业务格式。 |
+| `encode(T)` | 在 App 侧将对象编码为 `byte[]`；不能返回 `null`，结果最多 64 KiB。 |
+| `decode(byte[], storedVersion)` | 在 App 侧按存储版本解码；要自行兼容旧版本或明确抛错。 |
+
+`Codecs.INT` 使用 4 字节大端整数，`Codecs.LONG` 使用 8 字节大端整数，`Codecs.FLOAT`/`DOUBLE` 分别使用 4/8 字节大端 IEEE 754 原始位，支持 NaN、无穷大及带符号零。`Codecs.BOOLEAN` 使用单字节 0/1，`Codecs.STRING` 使用 UTF-8，`Codecs.BYTES` 原样传输并复制数组。每种都有独立的固定 schema ID/版本；`BYTES` 不等于 Java 对象序列化。自定义对象应实现明确的 Codec，避免依赖 Java 原生反序列化。
+
+例如 App1 可用 `manager.put(DeviceDataKeys.memoryLongTotalTransferBytes(false), 4_294_967_296L)` 写入 long，App2 用同一 Key 调用 `read`；float/double 分别使用 `memoryFloatDownloadProgressRatio` 和 `memoryDoubleSensorTemperatureCelsius` 等对应 Store 的 Key。三个 Store 的同名 Key 互不混用，App2 仍需先获得所在 namespace 的 READ/OBSERVE 授权。
+
+## 4. 通用客户端 API 逐项说明
+
+### 创建、关闭与返回类型
+
+| API | 用法与语义 |
+|---|---|
+| `GlobalDataSdk.connect(Context)` | 创建 `GlobalDataManager`，保存 application context；真正取得 Binder 发生在首次操作时。通常按组件或业务生命周期持有一个 manager。 |
+| `GlobalDataManager.close()` | 停止重连、关闭订阅、释放执行器。关闭后不要继续调用；Activity/Service 销毁时调用。 |
+| `DataSnapshot<T>` | `present` 区分不存在与存在；`value` 在不存在时为 `null`；`revision` 是该 Key 当前值版本，Key 不存在时是 namespace 的版本高水位；`serviceEpoch` 标识本次服务进程。 |
+| `WriteResult` | 成功写入/删除后的 `revision` 与 `serviceEpoch`。`remove` 遇到不存在的 Key 也返回此对象，当前高层 API 不单独暴露这次是否真的删除了旧值。 |
+| `GlobalDataException.status` | 读取状态码；`CompletableFuture` 的异常可能包在 `CompletionException` 里，先取 `getCause()`。 |
+| `Subscription.close()` | 取消一个数据或事件订阅。订阅属于创建它的 manager；关闭 manager 时也会关闭。 |
+
+`CompletableFuture` 方法把工作排入同一个 manager 的单线程 I/O 队列。`whenComplete` 等回调通常运行在完成该 Future 的线程，不保证是 UI 线程。`readBlocking`、`putBlocking` 会拒绝主线程调用；不要在同一 manager 的 Future 回调中再调用 `join()` 等待这个 manager 新排入的操作，否则可能卡住该单线程队列。需要连续操作时使用 `thenCompose`。
+
+### 读写、CAS 与删除
+
+| `GlobalDataManager` 方法 | 何时调用、返回什么 |
+|---|---|
+| `read(key)` | 异步读取。存在时用 `key.codec` 解码；不存在时正常完成，返回 `present=false` 和当前版本高水位。无读取权限、CE 锁定或解码失败会异常完成。 |
+| `readBlocking(key)` | 同样的读取，直接返回 `DataSnapshot<T>`；只能在非主线程调用。 |
+| `put(key, value)` | 异步 upsert，存在则覆盖、不存在则创建；返回新 revision。`null` 不是删除语义。 |
+| `putBlocking(key, value)` | 同样的 upsert，同步返回 `WriteResult`；只能在非主线程调用。 |
+| `putIfAbsent(key, value)` | Key 当前不存在时创建；已存在返回 `CONFLICT`。注意之前删除留下的版本高水位不会阻止“仅不存在”写入。 |
+| `putIfRevision(key, value, expectedSnapshot)` | CAS：同时比较快照的 `serviceEpoch` 和 `revision`；不一致返回 `CONFLICT`。快照应来自**同一个 Key**的 `read`。 |
+| `update(key, updater)` | 便利的“读取→计算→CAS”，遇冲突最多重试 3 次。不存在时传给 `updater` 的旧值是 `null`；`updater` 可能被调用多次，应避免副作用。 |
+| `remove(key)` | 无条件异步删除；不存在也视为正常完成。成功删除会推进 revision 并通知订阅者。 |
+| `removeIfRevision(key, expectedSnapshot)` | 条件删除；快照 epoch/revision 不匹配返回 `CONFLICT`。Key 已不存在时按当前实现正常完成，但不会产生删除通知。 |
+
+每个 namespace 在各 Backend 中维护自己的 revision 高水位。写入和成功删除都增加它。删除会移除值，但保留高水位，所以删除前的旧 revision 不能把值通过 CAS 写回。系统服务重启会更换 epoch，旧快照的 CAS 被拒绝；Memory Store 的 revision 会随进程清空，File/SQLite 的高水位持久化。跨不同 Key 的写入也会推进同一 namespace 的高水位，因此对“不存在 Key”的 CAS 可能发生保守冲突，应重新读取后重试。
+
+### 授权和撤销
+
+| 方法 | 资源粒度与行为 |
+|---|---|
+| `grantData(key, targetPackage, rights)` | owner 为目标包授予数据权限。`key` 在这里用来指出 **scope + owner + namespace**；授权覆盖这个 namespace 下三种 Store 的 Key，并非只覆盖传入的那个 Key。目标包须已安装，服务端记录其当前签名身份。 |
+| `grantDataToApps(key, targetPackages, rights)` | 将同一组数据权限授予多个目标包。SDK 在单个后台任务中逐个授权，并跳过重复包名；全部成功后 Future 才完成。某个包失败时停止后续授权，已经成功的授权不会回滚。 |
+| `revokeData(key, targetPackage, rights)` | 从该 namespace 对目标包移除指定权限位；可在目标包卸载后撤销旧授权。 |
+| `grantEvent(topic, targetPackage, rights)` | 对一个完整 topic 授予事件权限。 |
+| `revokeEvent(topic, targetPackage, rights)` | 从该 topic 移除指定事件权限位。 |
+
+数据权限位为 `Wire.READ`、`WRITE`、`DELETE`、`OBSERVE`；事件权限位为 `Wire.PUBLISH`、`SUBSCRIBE`。用按位或组合，例如 `Wire.READ | Wire.OBSERVE`。数据和事件权限互不替代；监听变化后 SDK 还会发起一次 `read`，因此 App2 要接收可解码的值，应同时获得 `OBSERVE | READ`。重复授权会合并同一签名身份的权限位；目标包签名变更不会继承旧位。owner 自身可以访问其合法资源，但给其他包授权必须由真实 owner UID 发起。撤销后服务端在后续操作与通知派发时重新检查权限；被撤销的旧订阅不应视为自动恢复，重新授权后请重新订阅。
+
+给多个已安装 App 授予相同权限时，可在 App1 中调用以下便捷方法。`key` 只需选共享 namespace 中任意一个 Key；`com.example.app3` 应替换为实际安装的包名。写入放在 `thenCompose` 中，确保所有授权成功后才执行：
+
+```java
+manager.grantDataToApps(operationCount,
+        java.util.Arrays.asList(DeviceDataKeys.APP2_PACKAGE, "com.example.app3"),
+        Wire.READ | Wire.OBSERVE)
+        .thenCompose(ignored -> manager.put(operationCount, 9999))
+        .whenComplete((result, error) -> runOnUiThread(() -> showResult("授权并写入", error)));
+```
+
+批量方法是 SDK 便利调用，系统服务仍逐个记录目标包及签名。若某个目标失败，可从异常链中的 `GlobalDataException.status` 判断状态码，异常消息会指出失败包；先前成功的授权需要按业务需要单独撤销。
+
+### 数据监听与事件
+
+| 方法/回调 | 作用 |
+|---|---|
+| `observeAndRead(key, callbackExecutor, listener)` | 注册单个 `DataKey<T>` 的观察者，然后主动读取一次当前值。Future 返回 `Subscription`；初始值和后续变化都通过 `listener.onChanged(snapshot)` 交付。 |
+| `DataListener.onChanged(snapshot)` | 接收当前快照。通知是“请重新读取”的信号，快速连续写入可能合并为同一个最新状态。 |
+| `DataListener.onResyncRequired()` | 服务进程死亡或服务端通知队列溢出时提示重同步；SDK 会尝试恢复并读取。业务界面可显示同步中状态。默认实现为空，可按需覆盖。 |
+| `DataListener.onError(error)` | 初始/后续读取失败或恢复订阅时失去权限。应检查状态码并决定是否提示用户、重新授权。默认实现为空，建议业务代码覆盖。 |
+| `events()` | 取得 `GlobalEventBus` 便利入口；不创建独立服务或存储。 |
+| `GlobalEventBus.post(topic)` | 发送一个**只有 topic、没有业务载荷**的事件。Future 成功表示服务端已接受并排入在线转发队列，不保证所有订阅者都收到。 |
+| `GlobalEventBus.subscribe(topic, callbackExecutor, listener)` | 订阅完整 topic；返回 `Subscription`。`listener` 接到 SDK 的 `EventTopic`；需要数据时再读对应 `DataKey`。 |
+
+数据与事件回调会按各自订阅串行交给 `callbackExecutor`。服务重启时数据订阅会重新注册并读取；事件订阅会重新注册，但停机期间事件不补发。每个 UID 最多各有 64 个数据订阅和事件订阅。事件发布限制为每 UID 每秒 20 个；服务端事件队列满时返回 `BUSY`。数据通知队列满时触发 `onResyncRequired`，客户端重新读取当前值。
+
+### `GlobalStore` 便利接口
+
+`manager.memory(scope, owner, namespace)`、`manager.file(...)`、`manager.database(...)` 分别返回绑定 Store/作用域/owner/namespace 的 `GlobalStore`。它们只是地址工厂与便利包装，不会创建额外的服务端实例。
+
+| `GlobalStore` 方法 | 等价操作 |
+|---|---|
+| `key(name, codec)` | `DataKey.of(本 Store, scope, owner, namespace, name, codec)`。 |
+| `putInt(name, value)` / `getInt(name)` | 用 `Codecs.INT` 调用 manager 的 `put` / `read`。 |
+| `putLong(name, value)` / `getLong(name)` | 用 `Codecs.LONG` 写入/读取 64 位整数。 |
+| `putFloat(name, value)` / `getFloat(name)` | 用 `Codecs.FLOAT` 写入/读取 32 位 IEEE 754 值。 |
+| `putDouble(name, value)` / `getDouble(name)` | 用 `Codecs.DOUBLE` 写入/读取 64 位 IEEE 754 值。 |
+| `putString(name, value)` / `getString(name)` | 用 `Codecs.STRING` 调用 `put` / `read`。 |
+| `putObject(name, value, codec)` / `getObject(name, codec)` | 用指定 Codec 调用 `put` / `read`。 |
+| `observe(name, codec, callback, listener)` | 调用 `observeAndRead(key(...), callback, listener)`。 |
+
+## 5. 示例业务 Contracts API
+
+`device-contracts` 是可替换的业务层示例，不是系统协议的一部分。
+首页的 33 个独立数据页面通过集合页的类型选择共使用 78 个语义化 Key；另有 5 个早期综合示例地址保留供 Repository 使用。所有 83 个工厂统一按 `Store + 数据格式 + 业务含义` 命名：例如 `memoryIntOperationCount`、`fileObjectDeviceConfig`、`databaseListStringRecentTags`、`memoryMapStringIntModuleRetryCounts`。`MapStringInt` 表示 `Map<String,Integer>`；`Bytes` 表示 `byte[]`。scope、owner、namespace、key 不参与方法命名，仍是 `DataKey` 地址的一部分。
+
+**3.0.0 迁移说明：**`DeviceDataKeys` 原方法名已移除，调用方需要重新编译并改用新名称。例如 `memoryOperationCount` → `memoryIntOperationCount`、`fileDeviceConfig` → `fileObjectDeviceConfig`、`databaseRecentTags` → `databaseListStringRecentTags`。本次只改变 Java 工厂名，Store、scope、owner、namespace、key、Codec 和已有存储数据保持不变；`ipc` / AIDL / 系统服务无需更新。
+
+**4.0.0 迁移说明：**`DeviceTopics.configRefreshed` → `app1ToApp2ConfigRefreshedEvent`，`requestConfigRefresh` → `app2ToApp1ConfigRefreshRequestEvent`，`refresh` → `legacyConfigRefreshEvent`。这三个方法仅创建事件地址，不会自行发布或订阅；调用方仍需显式调用 `post` 或 `subscribe`。旧方法名已移除，事件地址字符串、权限规则与已有系统服务保持不变。
+
+| 类型/方法 | 作用 |
+|---|---|
+| `DeviceConfig(deviceId, deviceName, enabled, group)` | 不可变示例 POJO；`withEnabled(next)` 返回改了 `enabled` 的新对象。 |
+| `DeviceConfigCodec.INSTANCE` | schema ID `com.oem.device.config`；新写入为版本 2 的 UTF-8 JSON，能读取版本 1/2；旧记录缺少 `group` 时读成空字符串。`schemaId/schemaVersion/encoding/encode/decode` 遵守 `ValueCodec`。 |
+| `DeviceCollections.STRING_LIST` / `STRING_MAP` / `STRING_SET` | `List<String>`、`Map<String,String>`、`Set<String>` 的 JSON/UTF-8 Codec，版本均为 1。Set 使用独立 schema `com.oem.device.string-set`，编码前排序以得到稳定字节，解码拒绝重复元素和非字符串元素；集合不承诺顺序，空 Set 是有效值。 |
+| `DeviceCollections.INT_LIST`、`LONG_LIST`、`FLOAT_LIST`、`DOUBLE_LIST`、`BOOLEAN_LIST` | 五种基础包装类型各自的 List Codec；每种格式有独立 schema 和固定版本。 |
+| `DeviceCollections.STRING_INT_MAP` 等五种 Map Codec | 键固定为 String，值分别为 Integer、Long、Float、Double、Boolean；每种格式独立编码。 |
+| `DeviceCollections.INT_SET`、`LONG_SET`、`FLOAT_SET`、`DOUBLE_SET`、`BOOLEAN_SET` | 五种基础包装类型各自的 Set Codec；稳定排序后写入，重复元素在解码时被拒绝。 |
+| `DeviceDataKeys.memoryIntOperationCount(system)` 等 78 个工厂 | 三个 Store 各有 26 个业务 Key；集合页切换类型时选择不同 Key，而不是把旧 String 地址换一个 Codec。完整映射见[演示目录](../DEMO_CATALOG.md)。 |
+| `DeviceTopics.app1ToApp2ConfigRefreshedEvent(system)` / `app2ToApp1ConfigRefreshRequestEvent(system)` | App1→App2 的配置已刷新通知、App2→App1 的刷新请求；两个 topic 分别授权。名称表达约定方向，服务端仍按真实身份和授权检查。 |
+| `DeviceDataKeys.memoryIntMode(system)` | `MEMORY` 中的整数 `mode`。 |
+| `DeviceDataKeys.fileObjectConfig(system)` | `FILE` 中的 `DeviceConfig`，key 为 `config`。 |
+| `DeviceDataKeys.databaseObjectConfig(system)` | `DATABASE` 中的 `DeviceConfig`，也叫 `config`；与 File 值独立。 |
+| `DeviceDataKeys.databaseListStringTags(system)` / `fileMapStringStringOptions(system)` | 分别为 Database 中的字符串 List、File 中的字符串 Map。 |
+| `DeviceTopics.legacyConfigRefreshEvent(system)` | 早期综合示例的 `CONFIG_REFRESH` 无载荷事件 topic。 |
+| `DeviceDataRepository(manager, system)` | 保存 manager 与示例作用域选择。`setMode/mode` 包装整数写/读；`saveFile/file` 包装 File 配置写/读；`saveDatabase/database` 包装 SQLite 配置写/读。均返回 Future，不增加额外缓存。 |
+
+List、Map、Set 在每种 Store 中各有独立的 App1 写入页和 App2 读取/监听页。以 Set 为例：先安装两个同变体 App，在 App1 的“MEMORY → Set 已启用功能标志”页点击初始写入，页面会先按 namespace 给 App2 授予 `READ | OBSERVE`，再对 `memorySetStringEnabledFeatureFlags(system)` 调用 `put`。随后打开 App2 对应页，`observeAndRead` 会返回当前快照；保持该页打开，再在 App1 输入 `wifi, bluetooth` 并点击修改，App2 将重新读取。输入 `wifi, wifi` 时 App1 拒绝重复项；输入留空时写入 `[]`，App2 的快照仍为 `present=true`。FILE、DATABASE 页按同样顺序操作，分别使用对应的 Key 工厂。完整入口和持久化差异见[演示目录](../DEMO_CATALOG.md)。
+
+例如 Integer 列表直接使用明确的 Key：`DataKey<List<Integer>> errors = DeviceDataKeys.memoryListIntRecentErrorCodes(false)`。App1 授予 App2 `READ | OBSERVE` 后调用 `manager.put(errors, Arrays.asList(404, 500))`；App2 用同一个 Key 调用 `read` 或 `observeAndRead`。这个 Key 固定绑定 `DeviceCollections.INT_LIST`，与原有 `memoryListStringRecentTags(false)` 的 String 列表地址和 JSON 格式互不混用。其余非 String 集合也各有明确的 Store 方法和独立 Codec，不使用运行时通用集合 Codec 工厂。新格式为版本 1 的长度前缀二进制；List 保留顺序，Map 和 Set 产生稳定编码，单值仍受 64 KiB 上限约束。
+
+新增业务对象时定义自己的 `ValueCodec<T>`、`DataKey<T>` 与 Repository。保持旧 schema 的可读性；仅改变业务契约可更新 Contracts AAR 和 APK，无须改 AIDL 或系统服务。改变 `Wire` 字段、AIDL 方法顺序或语义则要同步更新系统镜像。
+
+## 6. App 调用片段
+
+以下代码使用普通双 App 的 `USER_CE` 示例。先安装 App2，App1 才能按已安装目标包身份授予权限；两 App 的 `BuildConfig.SYSTEM_SCOPE` 均为 `false`。
+
+```java
+// Activity 的字段；在 onCreate 中创建，在 onDestroy 中关闭。
+GlobalDataManager manager = GlobalDataSdk.connect(getApplicationContext());
+DataKey<Integer> operationCount = DeviceDataKeys.memoryIntOperationCount(false);
+
+// App1：授予 App2 在整个共享 namespace 下的权限。
+int dataRights = Wire.READ | Wire.WRITE | Wire.DELETE | Wire.OBSERVE;
+manager.grantData(operationCount, DeviceDataKeys.APP2_PACKAGE, dataRights)
+        .whenComplete((ignored, error) -> runOnUiThread(() -> showResult("授权", error)));
+
+// App1：存入基本类型；File/Database 用各自的 DataKey 调用同一个 put。
+manager.put(operationCount, 9999).whenComplete((result, error) ->
+        runOnUiThread(() -> showResult("写入", error)));
+manager.put(DeviceDataKeys.fileObjectDeviceConfig(false),
+        new DeviceConfig(1001, "终端 A", true, "lab"));
+
+// App2：先读；不存在时 present=false，value=null。
+manager.read(operationCount).thenAccept(snapshot -> {
+    if (snapshot.present) {
+        int current = snapshot.value;
+        runOnUiThread(() -> showCount(current));
+    }
+});
+
+// App2：CAS 递增。thenCompose 避免阻塞 manager 的单线程队列。
+manager.read(operationCount).thenCompose(snapshot ->
+        manager.putIfRevision(operationCount, snapshot.present ? snapshot.value + 1 : 1, snapshot));
+
+// App2：订阅变更，并接收订阅后的第一次读取结果。
+manager.observeAndRead(operationCount, getMainExecutor(), new DataListener<Integer>() {
+    @Override public void onChanged(DataSnapshot<Integer> value) {
+        showCount(value.present ? value.value : null);
+    }
+    @Override public void onResyncRequired() { showSyncing(); }
+    @Override public void onError(Throwable error) { showResult("监听", error); }
+}).whenComplete((subscription, error) -> {
+    if (error == null) countSubscription = subscription; // onDestroy 中 close()
+});
+```
+
+上面 `showResult/showCount/showSyncing/countSubscription` 是示意用的页面自定义成员。这里授予四种数据权限，以额外演示 App2 的 CAS；[实际 App1 写入页](../App1/app/src/main/java/com/oem/globaldata/app1/MemoryIntDemoActivity.java) 只授予 App2 读取和监听权限，[App2 读取监听页](../App2/app/src/main/java/com/oem/globaldata/app2/MemoryIntDemoActivity.java) 不执行 CAS。
+
+事件应单独授权与订阅：
+
+```java
+EventTopic refresh = DeviceTopics.app1ToApp2ConfigRefreshedEvent(false);
+// App1 授予 App2 订阅权；数据授权不能代替事件授权。
+manager.grantEvent(refresh, DeviceDataKeys.APP2_PACKAGE, Wire.SUBSCRIBE);
+
+// App2：先订阅，接到事件后再读当前配置。
+manager.events().subscribe(refresh, getMainExecutor(), topic -> {
+    manager.read(DeviceDataKeys.fileObjectDeviceConfig(false)).thenAccept(snapshot -> {
+        // 根据当前值刷新界面；事件本身没有载荷。
+    });
+}).thenAccept(subscription -> refreshSubscription = subscription);
+
+// App1：仅转发给当时在线且仍有订阅权的订阅者。
+manager.events().post(refresh);
+```
+
+生产代码应给所有 Future 加异常处理，保存并关闭两个 `Subscription`，并在页面关闭时调用 `manager.close()`。示例里省略了这些成员的声明，仅展示调用关系。
+
+## 7. Binder 协议接口逐项说明
+
+业务代码优先用上一节的类型化 SDK。以下接口说明用于联调、抓日志或扩展 SDK。`IGlobalDataTransport` 的 `Bundle` 字段名与常量见 `ipc/.../Wire.java`；三个 AIDL 文件必须与系统侧副本一致。除订阅接口返回 `long` ID（失败为 `-1`）及退订返回 `void` 外，结果 `Bundle` 都带 `status` 和服务 `epoch`。当前 SDK 将订阅的 `-1` 统一映射为 `PERMISSION_DENIED`，该异常不能单独判断是权限错误还是订阅数量达到上限；排查时需结合服务端日志。
+
+| `IGlobalDataTransport` 方法 | 请求与服务端动作 |
+|---|---|
+| `getCapabilities()` | 返回协议 `major=1/minor=1`、`maxBytes=65536`、`features`；SDK 首次连上服务时检查。 |
+| `read(key)` | 地址字段为 `store/scope/owner/namespace/key`；校验 `READ`，读取后返回 `present/revision`，有值时返回含 schema 与 payload 的 `value`。不存在时 `NOT_FOUND`。 |
+| `write(key, value, mode, expectedRevision)` | `value` 含 `schemaId/schemaVersion/encoding/payload`。`mode` 为 `UPSERT`、`IF_ABSENT` 或 `IF_REVISION`；CAS 还需在 `key` Bundle 中放 `expectedEpoch`。检查 `WRITE`，成功返回新 revision 并触发数据通知。 |
+| `delete(key, expectedRevision)` | 检查 `DELETE`；`expectedRevision=-1` 表示无条件删除，否则 `key` Bundle 中必须放 `expectedEpoch`。成功删除推进 revision。 |
+| `grant(resource, targetPackage, rights)` | `resource` 含 `resource` 类型、`scope/owner`、数据 `namespace` 或事件 `topic`。仅实际 owner 可调用；目标包及签名身份被记录在持久化 ACL。 |
+| `revoke(resource, targetPackage, rights)` | 同一资源，扣除目标包的指定位；撤销后后续服务端检查立即按新 ACL 判断。 |
+| `subscribeData(key, observer)` | 检查 `OBSERVE`，注册单个 Key 的 `IDataObserver`，返回订阅 ID；不自动读取初始值，SDK 的 `observeAndRead` 会另行读取。 |
+| `unsubscribeData(subscriptionId)` | 只有原订阅 UID 能移除该 ID。 |
+| `publishEvent(address)` | 地址含 `scope/owner/topic`；检查 `PUBLISH` 和限流，加入 EventHub 的在线队列。没有 payload。 |
+| `subscribeEvent(address, listener)` | 检查 `SUBSCRIBE`，注册 `IEventListener`，返回订阅 ID。 |
+| `unsubscribeEvent(subscriptionId)` | 只有原订阅 UID 能移除该 ID。 |
+
+`IDataObserver.onDataChanged(event)` 接到地址、`CREATE_OP/UPDATE_OP/DELETE_OP`、revision 和 epoch；`onResyncRequired(serviceEpoch)` 表示服务端数据通知队列溢出，需要重新读取。`IEventListener.onEvent(event)` 只包含 scope、owner、topic、epoch，没有业务 payload。两种监听器都是 oneway Binder 回调；服务端也监听客户端 Binder 死亡以清理订阅。
+
+公开的 `android.globaldata.GlobalDataBridge.getTransportBinder()` 只返回服务 Binder，服务未就绪时返回 `null`。真正的权限检查在每次 `IGlobalDataTransport` 调用中，Bridge 本身不把 App 变成特权进程。
+
+## 8. 服务端怎样暂存、落盘与转发
+
+| 部件 | 位置、生命周期和写入方式 |
+|---|---|
+| `MemoryBackend` | `system_server` 进程内的 Map，按 scope/User/owner/namespace 隔离。读取与写入同步保护；进程或设备重启后值消失。每 owner 当前 payload 总量限制为 4 MiB。 |
+| `FileBackend` | 每个 scope/User/owner/namespace 对应一个 SHA-256 命名的 `.gdf` 快照文件，位于 DE/CE 的 `globaldata/file/`。快照包含所有 Key、schema、payload、revision 高水位和 CRC32；`AtomicFile` 完成替换后更新内存缓存并通知。单个 namespace 文件上限 1 MiB。 |
+| `DatabaseBackend` | 每个 scope/User 一个 `globaldata/db/globaldata-v1.db`。`kv` 表存储 owner、namespace、key、schema、payload、值 revision；`nsrev` 表存储删除后仍保留的 namespace 高水位。启用 WAL，事务内更新两表，事务完成后通知。每 owner 当前 payload 总量上限 16 MiB。 |
+| `AccessController` | owner 签名摘要与目标包授权写入 `/data/system_de/0/globaldata/acl-v1.bin` 的 `AtomicFile`，重启后保留；损坏时拒绝继续改写 ACL。权限粒度为数据 namespace 或完整事件 topic。 |
+| `DataObservers` | 只在内存保存在线订阅。写入或删除成功后转发变化提示；投递前重新检查 UID 的 `OBSERVE` 权。队列上限 256，溢出提示重同步；不持久化通知。 |
+| `EventHub` | 只在内存保存在线订阅与待发送事件。每 UID 每秒最多 20 次发布、队列上限 256；投递前重查 `SUBSCRIBE` 权。事件不写入 Memory/File/SQLite，也不缓存给离线 App。 |
+
+File/SQLite 持久化数据在读取前仍要通过 ACL；普通 App 不拥有数据目录的文件权限。服务端的单线程存储队列最多积压 128 个任务，满时返回 `BUSY`。File/SQLite 写入失败时返回 `STORAGE_UNAVAILABLE` 等错误，不发送“成功变更”通知。`put` 是**单 Key**操作；目前没有跨多个 Key/Store 的原子事务接口。不要把事件送达或监听通知当作数据库提交的替代确认；以写入 Future 的结果为准。
+
+## 9. 状态码与常见处理
+
+| 状态 | 含义 | 客户端建议 |
+|---|---|---|
+| `OK` (0) | 操作成功。 | 使用返回的 snapshot/result。 |
+| `NOT_FOUND` (1) | 读取或删除的 Key 不存在；授权目标包不存在时也会返回。 | `read/remove` 的高层 API 将前两种情况作为正常结果；`grant*` 会抛异常，应先安装目标包。 |
+| `PERMISSION_DENIED` (2) | 非 owner、未授权、无平台身份或命名空间不合法。 | 检查包名、签名、作用域与对应权限位。 |
+| `CONFLICT` (3) | `IF_ABSENT` 或 CAS 前置条件失败。 | 重新读取，按新快照再决策；不要盲目重放旧快照。 |
+| `QUOTA_EXCEEDED` (4) | 载荷、Store 配额或事件速率超限。 | 缩小载荷或降低发送频率。 |
+| `UNSUPPORTED` (5) | SDK/服务协议或 schema 不兼容。 | 核对系统版本和 Contracts Codec。 |
+| `LOCKED` (6) | 用户 CE 尚未解锁。 | 解锁后重试，或为确需开机前使用的数据选择 DE。 |
+| `STORAGE_UNAVAILABLE` (7) | Bridge/服务不可用、Binder 错误或后端故障。 | 查看系统日志并按业务策略重试。 |
+| `BAD_REQUEST` (8) | 地址、载荷、操作模式或客户端编码/解码不合法。 | 修正调用或 Codec。 |
+| `BUSY` (9) | 服务端队列满。 | 退避后重试；事件是尽力转发，重试可能产生重复事件。 |
+
+示例解包 Future 错误：
+
+```java
+static Throwable rootCause(Throwable error) {
+    return error instanceof java.util.concurrent.CompletionException && error.getCause() != null
+            ? error.getCause() : error;
+}
+
+manager.read(DeviceDataKeys.memoryIntOperationCount(false)).whenComplete((snapshot, error) -> {
+    if (error != null) {
+        Throwable cause = rootCause(error);
+        if (cause instanceof GlobalDataException) {
+            int status = ((GlobalDataException) cause).status;
+            // 按上表处理，例如 LOCKED 等待用户解锁、CONFLICT 重新读取。
+        }
+    }
+});
+```
+
+**验证边界：**当前本地已构建 SDK AAR 与 App1/App2 APK，Codec 单元测试及 MemoryBackend 的 CAS/隔离测试通过。File/SQLite 的重启与断电行为、SELinux、跨用户、平台签名以及系统镜像编译，需要目标源码与设备验收；本文按当前代码描述其设计和预期行为，不代表这些设备场景已实测。

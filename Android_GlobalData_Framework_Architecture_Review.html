@@ -1,0 +1,540 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <meta name="description" content="Android AOSP GlobalDataManager 三种托管存储架构设计评审文档：内存、文件、SQLite，统一 SDK，类型编解码，跨进程通知与权限。">
+  <title>GlobalData Framework · Android 系统级托管数据架构评审稿</title>
+  <style>
+    :root { --bg:#f5f7f7; --paper:#ffffff; --ink:#172b38; --ink2:#344958; --muted:#647987; --line:#dbe4e7; --accent:#086e75; --accent-light:#e9f5f4; --navy:#102f43; --gold:#dcac62; --amber:#fff5df; --red:#9b4940; --red-light:#fff1ef; --green:#277452; --green-light:#eaf6ef; --code:#172b3a; --shadow:0 10px 40px rgba(24,52,69,.055); }
+    * {box-sizing:border-box} html {scroll-behavior:smooth} body {margin:0;background:var(--bg);color:var(--ink);font-family:Inter,"PingFang SC","Microsoft YaHei","Noto Sans CJK SC","Segoe UI",sans-serif;font-size:15px;line-height:1.78;}
+    a{color:var(--accent);text-decoration:none} a:hover{text-decoration:underline} .layout{display:grid;grid-template-columns:246px minmax(0,1fr);min-height:100vh} .sidebar{position:sticky;top:0;height:100vh;overflow-y:auto;padding:27px 20px 30px 22px;background:#102e40;color:#d7e7ee;border-right:1px solid #1b4457}
+    .brand{display:flex;align-items:center;gap:10px;padding:5px 7px 19px;border-bottom:1px solid rgba(255,255,255,.15);margin-bottom:22px}.logo{display:grid;place-items:center;width:37px;height:37px;border:1px solid #72d0c8;border-radius:11px;background:rgba(16,185,170,.12);color:#90e0d7;font-size:19px;font-weight:800}.brand strong{display:block;color:white;letter-spacing:.4px;font-size:15px;line-height:1.3}.brand small{display:block;color:#a0bccb;font-size:11px;line-height:1.5}
+    .nav-label{font-size:10px;color:#8facbb;text-transform:uppercase;letter-spacing:1.6px;padding:0 8px;margin:19px 0 6px}.nav-link{display:flex;align-items:center;gap:10px;color:#c0d5df;font-size:12px;padding:8px 9px;border-radius:8px;line-height:1.35;transition:background .15s}.nav-link:hover{background:rgba(255,255,255,.08);color:#fff;text-decoration:none}.nav-link.active{background:rgba(41,184,169,.18);color:#abf2e9}.nav-num{font-size:10px;min-width:20px;color:#74a9b9}.side-foot{margin-top:31px;padding:15px 10px;border-top:1px solid rgba(255,255,255,.14);font-size:11px;color:#9bb8c8;line-height:1.7}
+    .page{min-width:0;padding:0 43px 90px}.frame{max-width:1180px;margin:auto}.topbar{display:flex;align-items:center;justify-content:space-between;padding:20px 2px 18px;gap:12px}.breadcrumb{font-size:12px;color:var(--muted)}.actions{display:flex;gap:8px;flex-wrap:wrap}.btn{border:1px solid #cbdadd;background:#fff;color:#284552;border-radius:9px;padding:8px 13px;font-size:12px;font-weight:650;cursor:pointer;font-family:inherit}.btn:hover{border-color:var(--accent);color:var(--accent)}.btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}.btn.primary:hover{background:#075960}.btn:focus-visible,.nav-link:focus-visible,textarea:focus-visible,input:focus-visible{outline:3px solid #81cfc7;outline-offset:2px}
+    .hero{position:relative;overflow:hidden;background:linear-gradient(115deg,#102e41 0%,#0e4354 60%,#0d6669 135%);border-radius:18px;color:#fff;padding:47px 50px 40px;box-shadow:var(--shadow)}.hero:before{content:"";position:absolute;width:300px;height:300px;border:1px solid rgba(255,255,255,.12);border-radius:50%;right:-75px;top:-155px;box-shadow:0 0 0 80px rgba(255,255,255,.025),0 0 0 170px rgba(255,255,255,.023)}.eyebrow{font-size:11px;letter-spacing:2.1px;color:#9be9de;font-weight:750}.hero h1{position:relative;font-size:clamp(25px,2.55vw,39px);letter-spacing:-.6px;line-height:1.36;margin:14px 0 14px;font-weight:770;max-width:760px}.hero p{color:#d4e6ec;max-width:795px;margin:0 0 25px;font-size:14px;line-height:1.85}.hero-tags{display:flex;flex-wrap:wrap;gap:8px;position:relative}.hero-tags span{border:1px solid rgba(158,227,220,.37);background:rgba(0,0,0,.10);border-radius:99px;padding:5px 12px;color:#dcf7f3;font-size:11px}.meta{display:flex;gap:24px;flex-wrap:wrap;color:#b5d3de;font-size:11px;margin-top:20px}.meta strong{color:#fff;font-weight:600}
+    .intro-grid{display:grid;grid-template-columns:1.4fr 1fr 1fr;gap:14px;margin:20px 0 34px}.kpi{padding:19px 19px 16px;background:var(--paper);border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow)}.kpi .num{font-weight:800;font-size:27px;line-height:1.2;color:var(--accent)}.kpi .lbl{font-size:12px;font-weight:750;margin-top:4px}.kpi .sub{font-size:11px;color:var(--muted);line-height:1.55;margin-top:3px}
+    .section{background:var(--paper);border:1px solid var(--line);border-radius:15px;padding:34px 37px 33px;margin:20px 0;box-shadow:var(--shadow);scroll-margin-top:20px}.sec-head{display:flex;gap:13px;align-items:flex-start;margin-bottom:17px}.sec-index{font-size:11px;background:var(--accent-light);border:1px solid #d0e9e6;color:var(--accent);font-weight:800;border-radius:8px;min-width:37px;height:31px;display:grid;place-items:center;margin-top:2px}.section h2{font-size:23px;letter-spacing:-.3px;line-height:1.4;margin:0 0 7px}.section h3{font-size:16px;margin:28px 0 11px;line-height:1.4}.section h4{font-size:13px;margin:18px 0 8px}.section p{margin:11px 0;color:var(--ink2)}.section ul,.section ol{padding-left:22px;color:var(--ink2)}.section li{margin:5px 0}.subline{color:var(--muted);font-size:12px;margin:0}.lead{font-size:15px;color:var(--ink)!important;line-height:1.9}.callout{padding:16px 19px;background:var(--accent-light);border-left:4px solid var(--accent);border-radius:4px 9px 9px 4px;margin:15px 0;color:#1b5254}.callout.warning{background:var(--amber);border-color:#d29a38;color:#735322}.callout.risk{background:var(--red-light);border-color:#d87870;color:#753f38}.callout strong{color:inherit}.small{font-size:12px;color:var(--muted)}
+    .table-wrap{max-width:100%;overflow-x:auto;margin:17px 0 10px;border:1px solid var(--line);border-radius:10px}table{width:100%;border-collapse:collapse;font-size:12px;line-height:1.6}thead{background:#edf3f5}th{font-size:11.5px;color:#344e5c;font-weight:800;text-align:left;padding:12px 14px;vertical-align:top;border-bottom:1px solid var(--line)}td{padding:11px 14px;vertical-align:top;border-bottom:1px solid #e9eff0;color:var(--ink2)}tbody tr:last-child td{border-bottom:none}tbody tr:nth-child(even){background:#fbfcfc}td:first-child{font-weight:650;color:#244253}code{font-family:"SFMono-Regular",Consolas,"Liberation Mono",monospace;font-size:.92em;background:#edf3f4;color:#17606a;border-radius:4px;padding:1px 5px}pre{position:relative;background:var(--code);color:#e6f4f9;border-radius:10px;margin:13px 0 17px;padding:18px 21px;overflow:auto;line-height:1.7;font-size:12.5px;tab-size:4}pre code{color:inherit;background:none;padding:0;white-space:pre;font-size:inherit}pre .lang{position:absolute;right:14px;top:8px;font-size:10px;letter-spacing:1px;color:#83b7c7;font-family:inherit}.two-col{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:13px}.three-col{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:13px}.feature{border:1px solid var(--line);border-radius:12px;padding:18px;background:#fcfdfd}.feature h4{margin:0 0 7px}.feature p{font-size:12px;margin:5px 0}.pill{display:inline-block;border-radius:99px;font-size:10px;font-weight:750;padding:3px 9px;background:#e7f4f1;color:#24745e}.pill.orange{background:#fff1d9;color:#94662b}.pill.blue{background:#e7f0f9;color:#315f88}.pill.gray{background:#eef1f4;color:#526779}
+    .arch{border:1px solid #dbe6e9;border-radius:13px;padding:17px;background:#f9fbfb;margin:20px 0}.archbox{border:1px solid #cddfe3;border-radius:10px;padding:15px 18px;text-align:center;background:#fff}.archbox strong{display:block;font-size:14px}.archbox small{display:block;color:var(--muted);font-size:11px;margin-top:5px;line-height:1.6}.archbox.focus{border:1.5px solid #82c8c4;background:#ecf8f5}.arrow{display:flex;align-items:center;flex-direction:column;padding:4px;color:#477d8b;font-size:11px;line-height:1.1}.arrow:after{content:"↓";display:block;font-size:22px;font-weight:400}.arch-branches{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}.arch-branches .archbox{min-height:101px}.swatch{display:inline-block;width:9px;height:9px;border-radius:3px;margin-right:6px;background:#0e8c84}.swatch.file{background:#d4a04c}.swatch.db{background:#6d7bad}.layers{display:flex;gap:7px;flex-wrap:wrap;justify-content:center;margin-top:11px}.layers span{background:#f0f5f6;border:1px solid #e1eaec;border-radius:6px;padding:5px 9px;font-size:11px;color:#41606e}.legend{font-size:11px;color:var(--muted);margin:8px 0 0;text-align:center}.sequence{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:6px;margin:18px 0}.step{background:#eff5f5;border:1px solid #dce9e9;border-radius:9px;padding:12px 9px;min-height:91px}.step b{display:block;color:var(--accent);font-size:11px;margin-bottom:6px}.step span{display:block;font-size:11px;color:#3c5867;line-height:1.6}.decision-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-top:10px}.decision{border:1px solid var(--line);padding:15px;border-radius:9px;background:#fff}.decision .d-head{display:flex;justify-content:space-between;gap:6px;align-items:start}.decision strong{font-size:12px;color:#224356}.decision p{font-size:11.5px;margin:7px 0 0}.decision .status{font-size:10px;color:#a47428;background:#fff3e0;border-radius:9px;padding:2px 6px;flex-shrink:0}
+    .review-intro{display:flex;justify-content:space-between;align-items:center;gap:15px;flex-wrap:wrap}.review-progress{min-width:150px;font-size:12px;font-weight:700;color:var(--accent)}.progress-track{background:#e2ebed;height:7px;border-radius:9px;overflow:hidden;margin-top:6px}.progress-fill{background:var(--accent);height:100%;width:0;transition:width .2s}.checklist{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px;margin:15px 0 20px}.checkitem{display:flex;gap:9px;align-items:flex-start;background:#f8fbfb;border:1px solid #e0e9ea;border-radius:9px;padding:11px 12px;cursor:pointer;font-size:12px;line-height:1.65;color:#36515f}.checkitem input{margin-top:4px;accent-color:var(--accent)}.review-notes{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:13px}.note-card{display:block}.note-card label{display:block;font-size:12px;font-weight:800;color:#3d5460;margin-bottom:7px}.note-card textarea{display:block;width:100%;resize:vertical;min-height:120px;line-height:1.6;border:1px solid #d0dee2;border-radius:9px;padding:11px 13px;font-size:12px;font-family:inherit;background:white;color:var(--ink)}.review-foot{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-top:17px}.notice{font-size:11px;color:var(--muted)}.foot-note{padding:25px 0 12px;color:#81929d;font-size:11px;text-align:center}.kbd{font-family:Consolas,monospace;border-radius:3px;background:#edf3f3;padding:1px 4px}.sep{height:1px;background:var(--line);margin:23px 0}
+    @media(max-width:1160px){.layout{grid-template-columns:205px minmax(0,1fr)}.sidebar{padding:22px 12px}.page{padding:0 23px 65px}.section{padding:27px 26px}.hero{padding:38px 35px}.sequence{grid-template-columns:repeat(3,minmax(0,1fr))}}
+    @media(max-width:800px){.layout{display:block}.sidebar{height:auto;position:static;padding:13px 17px}.brand{border:0;margin:0;padding:0}.sidebar nav,.side-foot{display:none}.page{padding:0 14px 40px}.topbar{padding:14px 0}.hero{border-radius:13px;padding:30px 22px}.hero h1{font-size:25px}.section{padding:24px 18px}.intro-grid{grid-template-columns:repeat(3,minmax(0,1fr))}.two-col,.decision-list,.review-notes{grid-template-columns:1fr}.three-col{grid-template-columns:1fr}.meta{gap:11px}.breadcrumb{max-width:46vw}.arch-branches{gap:6px}.arch-branches .archbox{padding:12px 6px}.arch-branches .archbox strong{font-size:11px}.checklist{grid-template-columns:1fr}}
+    @media(max-width:480px){.intro-grid{grid-template-columns:1fr}.topbar{align-items:flex-start}.actions .btn{font-size:11px;padding:7px 10px}.hero-tags{gap:5px}.hero-tags span{font-size:10px}.sequence{grid-template-columns:repeat(2,minmax(0,1fr))} .arch-branches{grid-template-columns:1fr}.section h2{font-size:20px}}
+    @media print { @page{size:A4;margin:15mm 14mm} body{background:white;font-size:10.5pt;print-color-adjust:exact;-webkit-print-color-adjust:exact}.layout{display:block}.sidebar,.topbar .actions,.review-foot button{display:none!important}.page{padding:0}.frame{max-width:none}.topbar{padding:0 0 8mm}.hero{box-shadow:none;border-radius:7px;padding:22px 26px}.hero h1{font-size:24pt}.intro-grid{margin:14px 0;gap:6px}.kpi{box-shadow:none;padding:9px}.kpi .num{font-size:18pt}.section{page-break-inside:auto;box-shadow:none;border:0;border-top:2px solid #dbe4e7;border-radius:0;padding:17px 0;margin:0;scroll-margin-top:0}.section h2{font-size:18pt}.sec-head{break-after:avoid}table{font-size:9pt}tr,pre,.feature,.archbox,.callout,.decision,.step{break-inside:avoid}pre{white-space:pre-wrap;overflow:visible;word-break:break-word;font-size:8pt}.arch{padding:10px}.review-notes textarea{min-height:70px;border:1px solid #a9b9bf}.foot-note{padding-top:10px}.section a:after{content:""}}
+  </style>
+</head>
+<body>
+<div class="layout">
+  <aside class="sidebar" aria-label="文档章节导航">
+    <div class="brand"><div class="logo">G</div><div><strong>GlobalData</strong><small>AOSP / Architecture Review</small></div></div>
+    <nav>
+      <div class="nav-label">设计文档</div>
+      <a class="nav-link" href="#overview"><span class="nav-num">01</span>方案概述与结论</a>
+      <a class="nav-link" href="#requirements"><span class="nav-num">02</span>基线需求</a>
+      <a class="nav-link" href="#architecture"><span class="nav-num">03</span>整体架构</a>
+      <a class="nav-link" href="#lifecycle"><span class="nav-num">04</span>三种托管存储</a>
+      <a class="nav-link" href="#sdk"><span class="nav-num">05</span>客户端 SDK</a>
+      <a class="nav-link" href="#objects"><span class="nav-num">06</span>引用类型对象</a>
+      <a class="nav-link" href="#service"><span class="nav-num">07</span>服务内部设计</a>
+      <a class="nav-link" href="#observers"><span class="nav-num">08</span>变更通知与并发</a>
+      <a class="nav-link" href="#permissions"><span class="nav-num">09</span>权限与隔离</a>
+      <a class="nav-link" href="#aosp"><span class="nav-num">10</span>AOSP 集成</a>
+      <a class="nav-link" href="#risks"><span class="nav-num">11</span>风险与非目标</a>
+      <a class="nav-link" href="#acceptance"><span class="nav-num">12</span>验收用例</a>
+      <a class="nav-link" href="#decisions"><span class="nav-num">13</span>待评审决策</a>
+      <div class="nav-label">评审工具</div>
+      <a class="nav-link" href="#review"><span class="nav-num">14</span>评审检查表与记录</a>
+    </nav>
+    <div class="side-foot">状态：<strong style="color:#ecf6f8">待架构评审</strong><br>文档版本：1.0 · 2026-10-16<br>范围：定制 AOSP 系统级框架</div>
+  </aside>
+
+  <main class="page"><div class="frame">
+    <div class="topbar"><span class="breadcrumb">技术设计 / Android Framework / 数据托管服务</span><div class="actions"><button class="btn" type="button" onclick="window.print()">打印 / 保存 PDF</button><a class="btn primary" href="#review">开始评审 ↓</a></div></div>
+    <header class="hero">
+      <div class="eyebrow">ARCHITECTURE PROPOSAL · REVIEW DRAFT</div>
+      <h1>Android 系统级<br>GlobalData 托管存储框架</h1>
+      <p>面向可修改 AOSP 的定制系统：为普通 App、Settings、Launcher、SystemUI 和 Framework 提供统一的数据创建、赋值、读取、修改、删除、持久化与跨进程变更通知能力。</p>
+      <div class="hero-tags"><span>MemoryStore · 开机期间暂存</span><span>FileStore · 文件持久化</span><span>DatabaseStore · SQLite 持久化</span><span>业务模型零侵入</span></div>
+      <div class="meta"><span>文档类型 <strong>架构设计评审稿</strong></span><span>版本 <strong>v1.0</strong></span><span>日期 <strong>2026-10-16</strong></span><span>实现状态 <strong>方案设计，未完成编译验证</strong></span></div>
+    </header>
+
+    <div class="intro-grid" aria-label="方案核心摘要">
+      <div class="kpi"><div class="num">3</div><div class="lbl">并列托管存储</div><div class="sub">内存 / 文件 / SQLite，生命周期各不相同。</div></div>
+      <div class="kpi"><div class="num">1</div><div class="lbl">统一 SDK 接口</div><div class="sub">业务仅选择 Backend，CRUD 与 Observer 用法一致。</div></div>
+      <div class="kpi"><div class="num">0</div><div class="lbl">新增业务类型的框架改动</div><div class="sub">前提：可序列化且使用既有权限与协议。</div></div>
+    </div>
+
+    <section class="section" id="overview">
+      <div class="sec-head"><div class="sec-index">01</div><div><h2>方案概述与设计结论</h2><div class="subline">统一访问接口，三种独立数据托管后端</div></div></div>
+      <p class="lead">由 <strong>Apps 业务层 → GlobalDataManager 客户端 SDK → Binder/AIDL → GlobalDataService 系统服务</strong> 构成统一数据访问链路。GlobalDataService 按 App 选择路由到 <strong>MemoryBackend、FileBackend、DatabaseBackend</strong>，统一执行访问控制、原子变更、版本管理和通知分发。</p>
+      <div class="callout"><strong>需要冻结的核心基线：</strong> App 新增一个全局基本类型或可序列化引用类型对象，只调整该 App 的业务模型、Key 与 Codec，不修改客户端 SDK、AIDL 或 GlobalDataService，不因新增模型重新编译 AOSP。</div>
+      <p>这三类存储是<strong>互相独立的数据空间</strong>，不是“先写内存、再自动刷入文件或数据库”的三级缓存。除非将来显式引入镜像/同步策略，否则相同 namespace + key 在三种存储中可以拥有不同的值。</p>
+      <div class="two-col">
+        <div class="feature"><h4>Apps 层只关注什么？</h4><p>声明 namespace/key、创建值或 Java 类、选择存储方式、调用 put/get/update/remove、注册或撤销 Observer。</p></div>
+        <div class="feature"><h4>Service 层统一负责什么？</h4><p>鉴权、数据路由、字节值托管、持久化提交、版本校验、跨进程通知、资源与生命周期管理。</p></div>
+      </div>
+    </section>
+
+    <section class="section" id="requirements">
+      <div class="sec-head"><div class="sec-index">02</div><div><h2>基线需求与边界</h2><div class="subline">以下作为 V1 评审与验收标准</div></div></div>
+      <div class="table-wrap"><table><thead><tr><th>ID</th><th>基线需求</th><th>预期设计</th><th>优先级</th></tr></thead><tbody>
+        <tr><td>R-01</td><td>三种托管存储并列存在</td><td>Memory / File / Database，各自维护独立数据</td><td><span class="pill">必须</span></td></tr>
+        <tr><td>R-02</td><td>支持基本数据类型</td><td>int、long、boolean、float、double、String、byte[]</td><td><span class="pill">必须</span></td></tr>
+        <tr><td>R-03</td><td>支持引用类型对象</td><td>Java 类、List、Map 等可序列化数据；Codec 在 App</td><td><span class="pill">必须</span></td></tr>
+        <tr><td>R-04</td><td>赋值、读取、修改、删除</td><td>统一 GlobalStore API，put 支持创建或覆盖</td><td><span class="pill">必须</span></td></tr>
+        <tr><td>R-05</td><td>数据变化通知</td><td>跨进程 AIDL Observer，成功提交后触发</td><td><span class="pill">必须</span></td></tr>
+        <tr><td>R-06</td><td>内存托管只保留本次运行期</td><td>存于系统服务内存，不跨系统重启恢复</td><td><span class="pill">必须</span></td></tr>
+        <tr><td>R-07</td><td>文件 / 数据库数据跨重启保留</td><td>由 GlobalDataService 完成持久化与加载</td><td><span class="pill">必须</span></td></tr>
+        <tr><td>R-08</td><td>业务新增模型无需修改框架</td><td>稳定数据契约 + 通用字节协议 + namespace 规则</td><td><span class="pill">必须</span></td></tr>
+        <tr><td>R-09</td><td>跨进程并发安全</td><td>原子写入 + revision/CAS + 确认提交后通知</td><td><span class="pill">必须</span></td></tr>
+        <tr><td>R-10</td><td>权限隔离</td><td>UID / 签名 / Android User / namespace 访问控制</td><td><span class="pill">必须</span></td></tr>
+      </tbody></table></div>
+      <div class="callout warning"><strong>语义澄清：</strong>“内存托管开机到关机”是正常系统运行期语义，严格说它依赖 GlobalDataService 进程的存活。若 <code>system_server</code> 异常重启，MemoryStore 数据会丢失；不能宣称具备异常重启后仍保留内存值的保证。</div>
+    </section>
+
+    <section class="section" id="architecture">
+      <div class="sec-head"><div class="sec-index">03</div><div><h2>整体系统架构</h2><div class="subline">SDK 固定；业务对象模型不进入 system_server</div></div></div>
+      <div class="arch" role="img" aria-label="Apps通过统一GlobalDataManager SDK和AIDL调用GlobalDataService，由StorageRouter分别写入内存、文件、数据库三个后端">
+        <div class="archbox"><strong>Apps 业务层</strong><small>普通 App · Settings · Launcher · SystemUI · Framework</small><div class="layers"><span>基本类型</span><span>业务 POJO / List / Map</span><span>Key / Namespace</span><span>Codec</span></div></div>
+        <div class="arrow">统一业务调用</div>
+        <div class="archbox focus"><strong>GlobalDataManager.java · GlobalStore API</strong><small>memory(ns) / file(ns) / database(ns) · 统一读写 · Codec · Subscription</small></div>
+        <div class="arrow">AIDL / Binder IPC</div>
+        <div class="archbox focus"><strong>GlobalDataService · system_server</strong><small>AccessController · StorageRouter · RevisionManager · ObserverManager</small><div class="layers"><span>调用方权限检查</span><span>原子读写与版本控制</span><span>提交后异步通知</span></div></div>
+        <div class="arrow">按 StoreType 选择托管后端</div>
+        <div class="arch-branches">
+          <div class="archbox"><strong><span class="swatch"></span>MemoryBackend</strong><small>服务端 Map / 字节快照<br>进程存活期 · 不落盘</small></div>
+          <div class="archbox"><strong><span class="swatch file"></span>FileBackend</strong><small>AtomicFile / Proto 格式<br>文件持久化 · 重启保留</small></div>
+          <div class="archbox"><strong><span class="swatch db"></span>DatabaseBackend</strong><small>SQLite / WAL / KV 表<br>数据库持久化 · 重启保留</small></div>
+        </div>
+        <p class="legend">三种 Backend 数据独立；统一操作语义；跨进程事件统一由 ObserverManager 下发</p>
+      </div>
+      <h3>设计原则</h3>
+      <div class="three-col"><div class="feature"><h4>业务模型零侵入</h4><p>服务不引用任何业务 Java 类，不因新增字段或新对象编译 Framework。</p></div><div class="feature"><h4>存储方式显式选择</h4><p>App 自己选 Memory / File / Database，服务只执行约定语义。</p></div><div class="feature"><h4>统一能力，独立实现</h4><p>三个 Backend 各自优化，但对外遵循相同 CRUD + 事件协议。</p></div></div>
+    </section>
+
+    <section class="section" id="lifecycle">
+      <div class="sec-head"><div class="sec-index">04</div><div><h2>三种托管存储与生命周期</h2><div class="subline">区别仅在存储介质、可恢复性和性能特征</div></div></div>
+      <div class="table-wrap"><table><thead><tr><th>能力</th><th>MemoryStore</th><th>FileStore</th><th>DatabaseStore</th></tr></thead><tbody>
+        <tr><td>基本类型 / 引用类型</td><td>支持</td><td>支持</td><td>支持</td></tr>
+        <tr><td>CRUD / Observer</td><td>支持</td><td>支持</td><td>支持</td></tr>
+        <tr><td>跨 App 读写</td><td>经授权</td><td>经授权</td><td>经授权</td></tr>
+        <tr><td>App 进程退出</td><td>保留</td><td>保留</td><td>保留</td></tr>
+        <tr><td>系统服务进程重启</td><td><strong>丢失</strong></td><td>保留已提交数据</td><td>保留已提交数据</td></tr>
+        <tr><td>设备重启</td><td><strong>丢失</strong></td><td>保留已提交数据</td><td>保留已提交数据</td></tr>
+        <tr><td>写入方式</td><td>原子替换内存值</td><td>原子文件更新</td><td>SQLite 事务提交</td></tr>
+        <tr><td>适用数据</td><td>实时运行状态、会话级对象</td><td>少量配置、低频变更对象</td><td>高频更新、较多键值、后续复杂查询</td></tr>
+      </tbody></table></div>
+      <h3>Backend 建议实现</h3>
+      <div class="three-col">
+        <div class="feature"><span class="pill blue">MEMORY</span><h4>MemoryBackend</h4><p>使用 Map + 锁或原子计算，托管序列化数据。为满足“本次开机保留”，<strong>不应使用会自动淘汰权威数据的普通 LRU 缓存</strong>；应通过容量配额、显式删除与拒绝超额写入控制占用。</p></div>
+        <div class="feature"><span class="pill orange">FILE</span><h4>FileBackend</h4><p>按 namespace 维护 AtomicFile + Proto/二进制映射。可内存加载快照加速读，但每次声明成功的持久化写入必须先完成可靠文件提交。适合小数据、低频更新。</p></div>
+        <div class="feature"><span class="pill gray">DATABASE</span><h4>DatabaseBackend</h4><p>SQLite + WAL + KV 表，事务提交，支持单键读写、版本控制；未来如需条件查询、集合和批处理，可继续扩展专用数据库能力。</p></div>
+      </div>
+      <div class="callout warning"><strong>性能选型不是绝对排序：</strong>Memory 通常避免磁盘 I/O，但仍有 Binder 开销；File 和 SQLite 的效率取决于键值大小、读写频率、事务批量、文件重写大小及存储设备。具体阈值应通过目标硬件 Benchmark 决定。</div>
+      <p class="small">存储示例路径建议划分为设备加密（DE）与凭据加密（CE）区域，具体路径、访问时机和 SELinux 文件类型需按 AOSP 产品分支确定，不将示意路径当作固定契约。</p>
+    </section>
+
+    <section class="section" id="sdk">
+      <div class="sec-head"><div class="sec-index">05</div><div><h2>客户端 SDK 设计与使用范式</h2><div class="subline">统一入口、统一操作方法、业务新增零改动</div></div></div>
+      <h3>统一选择存储方式</h3>
+      <pre><span class="lang">JAVA · API PROPOSAL</span><code>GlobalDataManager manager =
+        context.getSystemService(GlobalDataManager.class);
+
+GlobalStore memory   = manager.memory("device");
+GlobalStore file     = manager.file("device");
+GlobalStore database = manager.database("device");</code></pre>
+      <p>不同 Store 的 <code>put/get/update/remove/observe</code> 操作保持一致；<code>device</code> 是逻辑 namespace，而不是用户可传入的真实文件路径。</p>
+      <h3>基本类型与持久化使用</h3>
+      <pre><span class="lang">JAVA · APPS LAYER</span><code>// ① 内存托管：本次系统运行期共享
+memory.putInt("device_mode", 1);
+int mode = memory.getInt("device_mode", 0);
+memory.putInt("device_mode", 2); // 更新
+
+// ② 文件托管：已提交的数据重启后保留
+file.putBoolean("boot_animation", true);
+boolean enabled = file.getBoolean("boot_animation", false);
+
+// ③ SQLite 托管：已提交的数据重启后保留
+database.putLong("device_count", 100L);
+long count = database.getLong("device_count", 0L);
+
+database.remove("device_count"); // 删除</code></pre>
+      <h3>建议冻结的核心 GlobalStore API</h3>
+      <pre><span class="lang">JAVA · INTERFACE SKETCH</span><code>interface GlobalStore {
+    boolean contains(String key);
+    long putInt(String key, int value);
+    int getInt(String key, int defaultValue);
+    long putLong(String key, long value);
+    long getLong(String key, long defaultValue);
+    long putBoolean(String key, boolean value);
+    boolean getBoolean(String key, boolean defaultValue);
+    long putFloat(String key, float value);
+    float getFloat(String key, float defaultValue);
+    long putDouble(String key, double value);
+    double getDouble(String key, double defaultValue);
+    long putString(String key, String value);
+    String getString(String key, String defaultValue);
+    long putBytes(String key, byte[] value);
+    byte[] getBytes(String key);
+
+    &lt;T&gt; long putObject(String key, T value, ValueCodec&lt;T&gt; codec);
+    &lt;T&gt; T getObject(String key, ValueCodec&lt;T&gt; codec);
+    &lt;T&gt; long updateObject(String key, ValueCodec&lt;T&gt; codec,
+                          UnaryOperator&lt;T&gt; updater);
+
+    DataSnapshot readSnapshot(String key);
+    long putIfRevision(String key, EncodedValue value,
+                       long expectedRevision);
+    long remove(String key);
+
+    Subscription observe(String key, Executor executor,
+                         ChangeListener listener);
+}</code></pre>
+      <p class="small">上述代码为评审用 API 草案，不是可直接复制到 AOSP 编译的完整源码。<code>DataSnapshot</code>、<code>EncodedValue</code>、<code>Subscription</code> 等模型将在接口冻结后正式定义。</p>
+      <div class="callout"><strong>创建/修改语义：</strong><code>put()</code> 是 upsert（不存在则创建，存在则替换）；若必须保证“只创建不覆盖”，建议补充 <code>putIfAbsent()</code>。并发对象修改使用 <code>putIfRevision()</code> / <code>updateObject()</code>，避免丢失更新。</div>
+    </section>
+
+    <section class="section" id="objects">
+      <div class="sec-head"><div class="sec-index">06</div><div><h2>Java 引用类型对象托管</h2><div class="subline">Codec 位于 Apps 层；服务只持有字节快照，不持有业务类实例</div></div></div>
+      <p>引用类型可以是普通 Java POJO、嵌套对象、List、Map 等<strong>可序列化数据</strong>。GlobalDataService 不需要加载、反射或识别业务对象的 Class，也不能跨进程保持同一个 Java 对象引用。</p>
+      <pre><span class="lang">JAVA · MODEL &amp; CODEC</span><code>public class DeviceConfig {
+    public int deviceId;
+    public String deviceName;
+    public boolean enabled;
+}
+
+// 在 SDK 中一次定义；各 App 按业务模型提供 Codec。
+public interface ValueCodec&lt;T&gt; {
+    String schemaId();
+    int schemaVersion();
+    byte[] encode(T value);
+    T decode(byte[] payload, int savedVersion);
+}</code></pre>
+      <h3>同一对象可托管在任意 Store 中</h3>
+      <pre><span class="lang">JAVA · APPS LAYER</span><code>DeviceConfig config = new DeviceConfig();
+config.deviceId = 1001;
+config.deviceName = "Android TV";
+config.enabled = true;
+
+ValueCodec&lt;DeviceConfig&gt; codec = /* App 自己实现 JSON/Proto Codec */;
+
+memory.putObject("runtime_config", config, codec);
+file.putObject("saved_config", config, codec);
+database.putObject("db_config", config, codec);
+
+DeviceConfig fromMemory = memory.getObject("runtime_config", codec);
+DeviceConfig fromFile = file.getObject("saved_config", codec);
+DeviceConfig fromDb = database.getObject("db_config", codec);
+
+// 注意：修改 fromMemory 的字段不会自动修改 Service 内的数据
+fromMemory.enabled = false;
+memory.putObject("runtime_config", fromMemory, codec);</code></pre>
+      <h3>统一的序列化数据契约</h3>
+      <div class="table-wrap"><table><thead><tr><th>字段</th><th>用途</th><th>约束 / 评审关注点</th></tr></thead><tbody>
+        <tr><td>storeType</td><td>Memory / File / Database 路由</td><td>固定枚举，不能随业务类扩展</td></tr>
+        <tr><td>userScope</td><td>区分用户级与设备级数据</td><td>与权限绑定，不能相信调用方自报</td></tr>
+        <tr><td>namespace + key</td><td>逻辑数据身份</td><td>权限隔离、长度、字符集与唯一性</td></tr>
+        <tr><td>valueType</td><td>基本类型或 BYTES</td><td>固定、可扩展、类型不匹配应明确报错</td></tr>
+        <tr><td>schemaId + schemaVersion</td><td>引用类型格式身份</td><td>由 Apps 协商并处理版本升级</td></tr>
+        <tr><td>payload</td><td>实际编码后的字节值</td><td>最大大小、拷贝策略、恶意输入边界</td></tr>
+        <tr><td>revision / epoch</td><td>并发控制和重启识别</td><td>持久化与内存版本语义分别定义</td></tr>
+      </tbody></table></div>
+      <div class="callout warning"><strong>对象变更不会被自动观察：</strong>没有经过 <code>GlobalStore.putObject()</code> / <code>updateObject()</code> 的原地字段修改，仅发生在客户端 Java 堆中，不会写回 Service，也不会触发 Observer。<code>updateObject()</code> 的回调可能因 CAS 冲突执行多次，不应包含不可重复的副作用。</div>
+      <p>跨 App 读取同一引用类型对象，需要事先约定相同的 <code>schemaId</code>、兼容的数据编码格式和版本迁移策略。服务无法凭字节自动恢复一个它从未认识的任意 Java 类。</p>
+    </section>
+
+    <section class="section" id="service">
+      <div class="sec-head"><div class="sec-index">07</div><div><h2>GlobalDataService 内部模块</h2><div class="subline">服务稳定、业务模型不侵入、Backend 可独立演进</div></div></div>
+      <div class="table-wrap"><table><thead><tr><th>模块</th><th>主要职责</th><th>建议约束</th></tr></thead><tbody>
+        <tr><td>GlobalDataBinder</td><td>稳定 AIDL IPC：get / put / remove / observer</td><td>严格参数校验，禁止透传任意 SQL</td></tr>
+        <tr><td>AccessController</td><td>校验 UID、用户、签名、namespace ACL</td><td>在每个读写/订阅入口检查</td></tr>
+        <tr><td>StorageRouter</td><td>按 StoreType 路由到三个 Backend</td><td>不得产生后端间隐式同步</td></tr>
+        <tr><td>MemoryBackend</td><td>托管内存字节快照与修订版本</td><td>容量配额、线程安全、不意外淘汰</td></tr>
+        <tr><td>FileBackend</td><td>AtomicFile/Proto 的小规模持久化 KV</td><td>原子写入、损坏恢复、schema 演进</td></tr>
+        <tr><td>DatabaseBackend</td><td>SQLite/WAL、事务及键值查询</td><td>升级迁移、索引、异常恢复</td></tr>
+        <tr><td>RevisionManager</td><td>CAS、版本号与服务 epoch</td><td>比较与替换必须原子化</td></tr>
+        <tr><td>ObserverManager</td><td>订阅筛选、异步事件投递、死亡清理</td><td>不可持锁执行远程回调</td></tr>
+      </tbody></table></div>
+      <h3>统一 Backend 合约</h3>
+      <pre><span class="lang">JAVA · INTERNAL INTERFACE</span><code>interface StorageBackend {
+    DataSnapshot get(StoreKey key);
+
+    // expectedRevision = -1 表示无条件 upsert
+    // expectedRevision = 0 表示仅在不存在时创建
+    long put(StoreKey key, EncodedValue value,
+             long expectedRevision);
+
+    long remove(StoreKey key, long expectedRevision);
+    long getRevision(StoreKey key);
+}
+
+// StoreKey 由 (userScope, storeType, namespace, key) 构成。
+// EncodedValue 由 (valueType, schemaId, schemaVersion, payload) 构成。</code></pre>
+      <h3>AIDL 协议建议</h3>
+      <pre><span class="lang">AIDL · CONCEPTUAL CONTRACT</span><code>interface IGlobalDataService {
+    DataSnapshot get(int storeType, String namespace,
+                     String key);
+
+    long put(int storeType, String namespace, String key,
+             in EncodedValue value, long expectedRevision);
+
+    long remove(int storeType, String namespace,
+                String key, long expectedRevision);
+
+    void registerObserver(int storeType, String namespace,
+                          String key, IGlobalDataObserver observer);
+
+    void unregisterObserver(IGlobalDataObserver observer);
+}</code></pre>
+      <p class="small">上述 AIDL 是接口形态草案。真正编译时需为 <code>DataSnapshot</code>、<code>EncodedValue</code> 等定义可 Parcel 化的数据结构；还需纳入 UserScope、授权与异常约定。</p>
+      <h3>建议的持久化实现</h3>
+      <p><strong>文件型：</strong>一个 namespace 一个小型映射文件（或受控文件分片），数据序列化后通过 AtomicFile 可靠替换。<strong>数据库型：</strong>一个或按用户拆分的 SQLite 库，典型 KV schema 包括 <code>namespace</code>、<code>key</code>、<code>valueType</code>、<code>payload</code>、<code>schemaVersion</code>、<code>revision</code>，并通过事务提交。</p>
+      <p>默认同步写入接口应在存储提交成功之后返回，并且<strong>不在 system_server 主线程执行磁盘 I/O</strong>。对高频场景可另外提供批处理接口，避免大量小事务与 Binder 往返。</p>
+    </section>
+
+    <section class="section" id="observers">
+      <div class="sec-head"><div class="sec-index">08</div><div><h2>变更通知、版本与并发</h2><div class="subline">三种 Backend 共用 ObserverManager</div></div></div>
+      <pre><span class="lang">JAVA · APPS LAYER</span><code>GlobalStore memory = manager.memory("device");
+
+Subscription subscription = memory.observe(
+    "runtime_config",
+    context.getMainExecutor(),
+    event -&gt; {
+        DeviceConfig latest = memory.getObject(
+            "runtime_config", codec);
+        updateUi(latest);
+    }
+);
+
+// 在应用组件生命周期结束时
+subscription.close();</code></pre>
+      <h3>一次写入的完整流程</h3>
+      <div class="sequence">
+        <div class="step"><b>STEP 01</b><span>App 调用 GlobalStore.put / update</span></div>
+        <div class="step"><b>STEP 02</b><span>Binder 接入 + UID / namespace 鉴权</span></div>
+        <div class="step"><b>STEP 03</b><span>StorageRouter 选择唯一 Backend</span></div>
+        <div class="step"><b>STEP 04</b><span>原子替换或持久化事务完成</span></div>
+        <div class="step"><b>STEP 05</b><span>生成 revision，投递变更事件</span></div>
+        <div class="step"><b>STEP 06</b><span>订阅者读取最新快照并更新 UI</span></div>
+      </div>
+      <div class="table-wrap"><table><thead><tr><th>事件字段</th><th>含义</th></tr></thead><tbody>
+        <tr><td>storeType</td><td>MEMORY / FILE / DATABASE</td></tr>
+        <tr><td>userScope</td><td>用户级或设备级数据范围</td></tr>
+        <tr><td>namespace / key</td><td>发生变化的具体数据</td></tr>
+        <tr><td>operation</td><td>CREATE / UPDATE / DELETE</td></tr>
+        <tr><td>revision</td><td>本数据的新版本，用于乐观并发与过期检测</td></tr>
+        <tr><td>epoch</td><td>系统服务运行实例；内存版本重置后可识别服务重启</td></tr>
+      </tbody></table></div>
+      <p><strong>并发更新：</strong>读取返回 <code>DataSnapshot(value, revision)</code>；修改时携带预期版本。若版本冲突，服务拒绝覆盖，SDK 可重新读取并重试。这里对对象的修改发生在 App 进程，Service 只原子提交新字节快照。</p>
+      <p><strong>通知保证：</strong>成功提交后通知已注册且有权限的客户端；通知是“数据可能已变化”的提示，不是可靠消息队列，不保证离线补投、每一次中间状态都能被观察。客户端应以重新读取最新快照为准，Binder 断线重连后重新注册并同步状态。</p>
+      <div class="callout"><strong>注册时的竞态处理：</strong>建议 SDK 提供订阅并获取首个快照的组合能力，或采用“先注册监听 → 读取快照/版本 → 核对版本”的流程，避免刚启动就漏掉关键变化。</div>
+    </section>
+
+    <section class="section" id="permissions">
+      <div class="sec-head"><div class="sec-index">09</div><div><h2>跨 App 权限、安全与隔离</h2><div class="subline">全局可访问不等于所有 App 可无限制写入</div></div></div>
+      <p>所有读、写、删除和 Observer 注册操作必须由 GlobalDataService 校验真实 Binder 调用者身份。不要把客户端传入的 UID、PackageName 或 userId 当成可信身份来源。</p>
+      <div class="table-wrap"><table><thead><tr><th>Namespace 示例</th><th>建议默认访问</th><th>说明</th></tr></thead><tbody>
+        <tr><td>system.*</td><td>受信任系统组件、签名级策略</td><td>保护系统内部配置、禁止普通 App 越权</td></tr>
+        <tr><td>app.&lt;owner&gt;.*</td><td>仅所有者读写</td><td>普通应用私有共享存储空间</td></tr>
+        <tr><td>public.&lt;owner&gt;.*</td><td>其他 App 经策略允许读取；所有者写入</td><td>公开共享仍需用户隔离与配额</td></tr>
+        <tr><td>shared.&lt;team&gt;.*</td><td>显式 ACL / 预置可信策略</td><td>业务协作式跨 App 读写，可作为扩展</td></tr>
+      </tbody></table></div>
+      <div class="callout risk"><strong>安全设计待评审：</strong>仅用数字 UID 表达持久化 namespace 所有权并不充分，卸载后 UID 可能复用。建议将 namespace 所有权绑定经验证的包身份及签名证书，明确重装、签名轮换、shared UID、多用户及卸载清理策略。</div>
+      <h3>最小安全控制</h3>
+      <ul>
+        <li>Namespace 创建与授权采用统一规则，不为每个新业务 Key 修改 AOSP 权限代码。</li>
+        <li>隔离 Android 多用户 / 工作资料；设备级共享数据必须显式授权。</li>
+        <li>支持 DE / CE 数据范围：开机未解锁时可用的数据与用户解锁后数据分开。</li>
+        <li>限制单条 payload、每 UID 总存储量、内存占用、Observer 数、写入频率和批量大小。</li>
+        <li>Service 在 system_server 内运行，要强化输入校验，避免 OOM、阻塞系统关键线程和异常扩散。</li>
+      </ul>
+      <p class="small">建议 V1 讨论单值 64 KiB 作为默认软上限（具体值待压测确认）。大对象传输需要文件描述符或共享内存等额外协议，不应简单无限放大 Binder 数据报文。</p>
+    </section>
+
+    <section class="section" id="aosp">
+      <div class="sec-head"><div class="sec-index">10</div><div><h2>AOSP 接入与工程划分</h2><div class="subline">基于可修改 AOSP 的系统服务方案</div></div></div>
+      <pre><span class="lang">AOSP · PROPOSED FILE LAYOUT</span><code>frameworks/base/
+  core/java/android/os/
+    GlobalDataManager.java
+    IGlobalDataService.aidl
+    IGlobalDataObserver.aidl
+    GlobalDataValue.java           // Parcelable 数据契约
+  core/java/android/content/
+    Context.java                   // 服务名称（拟修改）
+  core/java/android/app/
+    SystemServiceRegistry.java    // SDK 注册（拟修改）
+  services/core/java/com/android/server/globaldata/
+    GlobalDataService.java
+    StorageRouter.java
+    AccessController.java
+    ObserverManager.java
+    MemoryBackend.java
+    FileBackend.java
+    DatabaseBackend.java
+  services/java/com/android/server/
+    SystemServer.java             // 服务启动（拟修改）
+
+system/sepolicy/                  // 服务/文件类型、访问策略
+frameworks/base/core/res/        // 系统权限定义（如需）</code></pre>
+      <h3>必须完成的接入项</h3>
+      <div class="table-wrap"><table><thead><tr><th>项</th><th>设计责任</th><th>备注</th></tr></thead><tbody>
+        <tr><td>SystemServer</td><td>创建、启动并发布 GlobalDataService</td><td>明确启动阶段及启动失败策略</td></tr>
+        <tr><td>AIDL + Manager</td><td>定义稳定数据协议、注册客户端 SDK 服务</td><td>处理 Binder 异常、死亡重连</td></tr>
+        <tr><td>SDK API 面</td><td>普通 App 编译时可见 GlobalDataManager</td><td><code>@hide</code> 不能直接满足普通 SDK 工程；需定制 SDK/API 导出</td></tr>
+        <tr><td>Permissions</td><td>系统级权限、namespace ACL、UID 鉴权</td><td>读写与订阅均校验</td></tr>
+        <tr><td>SELinux</td><td>Binder service 类型和持久化文件访问策略</td><td>与现有 AOSP 分支的 neverallow 规则协调</td></tr>
+        <tr><td>Build / API</td><td>Android.bp、API 签名、隐藏 API 及兼容性检查</td><td>按目标 Android 分支适配</td></tr>
+        <tr><td>测试</td><td>单测、CTS 风格 API 测试、跨进程集成、压力测试</td><td>包含多用户、开机、进程异常、写入竞争</td></tr>
+      </tbody></table></div>
+      <div class="callout warning"><strong>版本声明：</strong>此文档是面向 AOSP 定制版的架构评审稿，不是经 Android 14/15/16 逐分支编译验证的补丁。接入路径、SELinux 上下文、权限声明和 API 发布方式必须在目标分支实测。</div>
+    </section>
+
+    <section class="section" id="risks">
+      <div class="sec-head"><div class="sec-index">11</div><div><h2>关键风险、取舍与非目标</h2><div class="subline">评审中应主动确认而非默认为已解决</div></div></div>
+      <div class="table-wrap"><table><thead><tr><th>风险 / 取舍</th><th>影响</th><th>处理建议</th></tr></thead><tbody>
+        <tr><td>system_server 资源竞争</td><td>写入阻塞、内存膨胀影响系统</td><td>专用 I/O 执行器、严格容量与频率配额；考虑未来隔离存储进程</td></tr>
+        <tr><td>FileBackend 写放大</td><td>大映射文件高频更新性能差</td><td>限定文件后端数据量，频繁写入建议 DB</td></tr>
+        <tr><td>Binder 数据上限</td><td>大对象传输失败或拖慢系统</td><td>单值限制，必要时 FD / SharedMemory 独立传输</td></tr>
+        <tr><td>对象 schema 变化</td><td>旧数据反序列化失败</td><td>schemaId/version + Codec 升级与迁移策略</td></tr>
+        <tr><td>并发丢更新</td><td>多个 App 修改同一对象覆盖彼此</td><td>CAS / revision / 幂等重试</td></tr>
+        <tr><td>事件遗漏与观察竞态</td><td>客户端缓存滞后</td><td>重新读取为真值；重连重新同步；版本检查</td></tr>
+        <tr><td>权限与所有权滥用</td><td>跨 App 泄漏、非法修改</td><td>包签名身份、用户隔离、ACL、配额、审计</td></tr>
+        <tr><td>持久化损坏与升级</td><td>数据无法读取或历史数据丢失</td><td>AtomicFile 恢复、SQLite 迁移与备份/恢复策略</td></tr>
+      </tbody></table></div>
+      <h3>V1 明确不承诺</h3>
+      <ul>
+        <li><strong>不支持跨进程共享同一 Java 对象引用</strong>：传输的是序列化快照。</li>
+        <li><strong>不自动追踪对象字段变化</strong>：赋值和修改必须显式调用 SDK。</li>
+        <li><strong>三种存储不自动相互同步</strong>：各自独立。</li>
+        <li><strong>Observer 不是可靠消息队列</strong>：不承诺离线通知补投。</li>
+        <li><strong>不允许向普通 App 暴露任意 SQL</strong>：数据库后端先提供统一 KV；复杂查询以后单独定义。</li>
+        <li><strong>不承诺 MemoryStore 异常恢复</strong>：system_server 重启后 Memory 值会丢失。</li>
+      </ul>
+    </section>
+
+    <section class="section" id="acceptance">
+      <div class="sec-head"><div class="sec-index">12</div><div><h2>建议验收测试用例</h2><div class="subline">可作为技术评审通过后的开发验收基线</div></div></div>
+      <div class="table-wrap"><table><thead><tr><th>ID</th><th>测试场景</th><th>预期结果</th></tr></thead><tbody>
+        <tr><td>T-01</td><td>App A 创建 int；App B 读取同一 Memory key</td><td>经授权读取相同值</td></tr>
+        <tr><td>T-02</td><td>App A 自定义 DeviceConfig，写入 Memory/File/Database</td><td>三种 Store 均可独立读写，无需修改 Service</td></tr>
+        <tr><td>T-03</td><td>App B 订阅；App A 修改值</td><td>成功提交后 App B 获得对应 store/key 的事件</td></tr>
+        <tr><td>T-04</td><td>App A 进程退出后重启</td><td>三种 Store 原有值仍可按权限读取</td></tr>
+        <tr><td>T-05</td><td>设备重启后读取</td><td>Memory 丢失；File / Database 的已提交值保留</td></tr>
+        <tr><td>T-06</td><td>两个 App 同时更新同一对象</td><td>CAS 冲突可被识别，不能静默丢更新</td></tr>
+        <tr><td>T-07</td><td>普通 App 读取系统私有 namespace</td><td>按预设 ACL 拒绝，不能绕过订阅接口泄露</td></tr>
+        <tr><td>T-08</td><td>客户端死亡并重连</td><td>旧 Observer 自动清理，新客户端可重新订阅并读取最新值</td></tr>
+        <tr><td>T-09</td><td>对象 schemaVersion 升级</td><td>能迁移兼容数据或返回可诊断错误</td></tr>
+        <tr><td>T-10</td><td>磁盘写入失败 / 存储已满</td><td>不报告成功、不发布虚假成功事件</td></tr>
+        <tr><td>T-11</td><td>超大对象、多 UID 高频写入、订阅泛滥</td><td>服务施加限额，system_server 保持稳定</td></tr>
+        <tr><td>T-12</td><td>设备未解锁与多用户场景</td><td>DE/CE 行为正确，跨用户读写按策略隔离</td></tr>
+      </tbody></table></div>
+    </section>
+
+    <section class="section" id="decisions">
+      <div class="sec-head"><div class="sec-index">13</div><div><h2>需要团队拍板的关键决策</h2><div class="subline">当前为提议，不应误认为这些设计已经定稿</div></div></div>
+      <div class="decision-list">
+        <div class="decision"><div class="d-head"><strong>D-01 · SDK 面向哪些 App 公开？</strong><span class="status">待定</span></div><p>只给系统预装 App，还是提供定制 SDK 给普通第三方 App？影响 API 兼容、权限与维护成本。</p></div>
+        <div class="decision"><div class="d-head"><strong>D-02 · namespace 所有权</strong><span class="status">待定</span></div><p>系统固定空间 + App 自动空间 + 显式授权空间如何命名与持久化？包证书、卸载和 UID 复用如何处理？</p></div>
+        <div class="decision"><div class="d-head"><strong>D-03 · DE / CE 与跨用户范围</strong><span class="status">待定</span></div><p>哪些数据设备级共享？哪些数据按用户隔离？文件与数据库是否按用户物理分区？</p></div>
+        <div class="decision"><div class="d-head"><strong>D-04 · FileBackend 物理格式</strong><span class="status">待定</span></div><p>AtomicFile + Proto 快照是否作为 V1 首选？单 namespace 文件大小和写频率阈值是多少？</p></div>
+        <div class="decision"><div class="d-head"><strong>D-05 · DatabaseBackend 功能边界</strong><span class="status">待定</span></div><p>V1 只做 SQLite KV，还是直接增加 collection/分页/批处理事务接口？</p></div>
+        <div class="decision"><div class="d-head"><strong>D-06 · 数据大小与配额</strong><span class="status">待定</span></div><p>单键上限、每 App 的 Memory/File/DB 上限、Observer 数量、操作频率。</p></div>
+        <div class="decision"><div class="d-head"><strong>D-07 · 通知可靠性契约</strong><span class="status">待定</span></div><p>确认 best-effort / 只传元数据 / 重读最新值；是否要提供注册 + 快照原子接口？</p></div>
+        <div class="decision"><div class="d-head"><strong>D-08 · 服务部署位置</strong><span class="status">待定</span></div><p>V1 放 system_server；未来若高频使用或第三方可写，是否把 Backend 隔离到独立系统进程？</p></div>
+      </div>
+    </section>
+
+    <section class="section" id="review">
+      <div class="sec-head"><div class="sec-index">14</div><div><h2>评审检查清单与意见记录</h2><div class="subline">可离线填写；使用下方按钮导出评审记录 Markdown 文件</div></div></div>
+      <div class="review-intro"><p style="max-width:640px;margin:0">请确认设计契约是否足够稳定、安全、可测试。以下勾选表示“已完成审阅”，不等于该项已经通过；具体意见写在下方记录框中。</p><div class="review-progress"><span id="review-count">0 / 12 项已审阅</span><div class="progress-track"><div id="review-bar" class="progress-fill"></div></div></div></div>
+      <div class="checklist" id="review-checklist">
+        <label class="checkitem"><input type="checkbox" data-review="C01"><span>C-01：三种 Backend 生命周期是否符合业务预期？</span></label>
+        <label class="checkitem"><input type="checkbox" data-review="C02"><span>C-02：新增业务类型是否确实不修改 SDK / Service？</span></label>
+        <label class="checkitem"><input type="checkbox" data-review="C03"><span>C-03：基本类型与 Codec 的错误语义是否明确？</span></label>
+        <label class="checkitem"><input type="checkbox" data-review="C04"><span>C-04：FileStore / DatabaseStore 的选择依据是否合理？</span></label>
+        <label class="checkitem"><input type="checkbox" data-review="C05"><span>C-05：revision / CAS 并发语义是否能避免丢更新？</span></label>
+        <label class="checkitem"><input type="checkbox" data-review="C06"><span>C-06：Observer 丢通知、重连、首次读取是否覆盖？</span></label>
+        <label class="checkitem"><input type="checkbox" data-review="C07"><span>C-07：普通 App 的权限边界与所有权是否安全？</span></label>
+        <label class="checkitem"><input type="checkbox" data-review="C08"><span>C-08：多用户、DE/CE 与开机时序是否清晰？</span></label>
+        <label class="checkitem"><input type="checkbox" data-review="C09"><span>C-09：system_server 性能与资源限制是否可接受？</span></label>
+        <label class="checkitem"><input type="checkbox" data-review="C10"><span>C-10：目标 AOSP 版本的 API/SELinux 集成是否可行？</span></label>
+        <label class="checkitem"><input type="checkbox" data-review="C11"><span>C-11：对象 schema 迁移、重启及数据损坏恢复是否覆盖？</span></label>
+        <label class="checkitem"><input type="checkbox" data-review="C12"><span>C-12：验收用例是否足以进入开发阶段？</span></label>
+      </div>
+      <div class="review-notes">
+        <div class="note-card"><label for="review-api">① 架构与 API 意见</label><textarea id="review-api" placeholder="接口设计、存储边界、对象序列化、未来扩展……" data-note="架构与 API"></textarea></div>
+        <div class="note-card"><label for="review-security">② 权限与安全意见</label><textarea id="review-security" placeholder="UID/包签名、namespace、SELinux、多用户、资源配额……" data-note="权限与安全"></textarea></div>
+        <div class="note-card"><label for="review-reliability">③ 一致性与可靠性意见</label><textarea id="review-reliability" placeholder="持久化提交、CAS、通知、异常重启、迁移与恢复……" data-note="一致性与可靠性"></textarea></div>
+        <div class="note-card"><label for="review-plan">④ 实施与验收建议</label><textarea id="review-plan" placeholder="建议的研发顺序、风险验证、基准测试、阶段性验收……" data-note="实施与验收"></textarea></div>
+      </div>
+      <div class="review-foot"><span class="notice" id="save-info">评审信息仅暂存在本浏览器；请导出后自行共享给团队。</span><div class="actions"><button class="btn" type="button" id="reset-review">清空本机评审记录</button><button class="btn primary" type="button" id="export-review">导出评审意见 (.md)</button></div></div>
+    </section>
+
+    <div class="foot-note">GlobalData Framework · 架构设计评审稿 v1.0 · 本文档为可离线审阅的设计方案，不代表源码已落地或已通过 AOSP 编译验证。</div>
+  </div></main>
+</div>
+<script>
+(function(){
+  'use strict';
+  var storageKey='globaldata_framework_review_v1';
+  var checks=Array.prototype.slice.call(document.querySelectorAll('[data-review]'));
+  var notes=Array.prototype.slice.call(document.querySelectorAll('[data-note]'));
+  var count=document.getElementById('review-count');
+  var bar=document.getElementById('review-bar');
+  var info=document.getElementById('save-info');
+  function allData(){
+    return {checks:Object.fromEntries(checks.map(function(el){return [el.dataset.review,el.checked]})),
+      notes:Object.fromEntries(notes.map(function(el){return [el.dataset.note,el.value]}))};
+  }
+  function update(){
+    var done=checks.filter(function(el){return el.checked}).length;
+    count.textContent=done+' / '+checks.length+' 项已审阅';
+    bar.style.width=(100*done/checks.length).toFixed(0)+'%';
+  }
+  function save(){
+    update();
+    try {localStorage.setItem(storageKey,JSON.stringify(allData()));info.textContent='已暂存到当前浏览器；导出评审意见后再共享给团队。';}
+    catch(e){info.textContent='浏览器不支持本地暂存；请及时导出评审意见。';}
+  }
+  try {
+    var old=JSON.parse(localStorage.getItem(storageKey)||'null');
+    if(old&&old.checks) checks.forEach(function(el){el.checked=!!old.checks[el.dataset.review]});
+    if(old&&old.notes) notes.forEach(function(el){el.value=old.notes[el.dataset.note]||''});
+  } catch(e){}
+  checks.forEach(function(el){el.addEventListener('change',save)});
+  notes.forEach(function(el){el.addEventListener('input',save)});
+  update();
+  document.getElementById('export-review').addEventListener('click',function(){
+    var data=allData(); var result=['# GlobalData Framework 架构评审记录','', '- 方案版本：v1.0','- 文档日期：2026-10-16','- 导出时间：'+new Date().toLocaleString(),'','## 评审检查项',''];
+    checks.forEach(function(el){result.push('- ['+(el.checked?'x':' ')+'] '+el.dataset.review+' · '+el.parentElement.querySelector('span').textContent)});
+    result.push('','## 评审意见','');
+    notes.forEach(function(el){result.push('### '+el.dataset.note,'',el.value.trim()||'（未填写）','')});
+    result.push('---','说明：勾选表示已审阅，并不代表通过。');
+    var blob=new Blob([result.join('\n')],{type:'text/markdown;charset=utf-8'});
+    var url=URL.createObjectURL(blob);var anchor=document.createElement('a');
+    anchor.href=url;anchor.download='GlobalData_Architecture_Review_Notes.md';
+    document.body.appendChild(anchor);anchor.click();anchor.remove();
+    setTimeout(function(){URL.revokeObjectURL(url)},2000);
+  });
+  document.getElementById('reset-review').addEventListener('click',function(){
+    if(!window.confirm('确认清空当前浏览器中该文档的评审记录？')) return;
+    checks.forEach(function(el){el.checked=false});notes.forEach(function(el){el.value='' });
+    try{localStorage.removeItem(storageKey)}catch(e){}
+    update();info.textContent='已清空本机记录。';
+  });
+  if('IntersectionObserver' in window){
+    var sections=Array.prototype.slice.call(document.querySelectorAll('section.section'));
+    var links=Array.prototype.slice.call(document.querySelectorAll('.nav-link'));
+    var io=new IntersectionObserver(function(entries){
+      var shown=entries.filter(function(e){return e.isIntersecting}).sort(function(a,b){return b.intersectionRatio-a.intersectionRatio});
+      if(!shown.length)return;
+      links.forEach(function(el){el.classList.toggle('active',el.getAttribute('href')==='#'+shown[0].target.id)});
+    },{rootMargin:'-10% 0px -63% 0px',threshold:[0,.05,.15,.3]});
+    sections.forEach(function(el){io.observe(el)});
+  }
+})();
+</script>
+</body>
+</html>

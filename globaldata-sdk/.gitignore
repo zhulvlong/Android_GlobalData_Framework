@@ -1,0 +1,6 @@
+/.gradle/
+/.idea/
+/bridge-stubs/build/
+/client/build/
+/device-contracts/build/
+/ipc/build/

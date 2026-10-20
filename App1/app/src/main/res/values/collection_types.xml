@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 顺序与页面的类型分支一致；默认第一个 String 保持旧集合示例行为。 -->
+    <string-array name="collection_value_types">
+        <item>String</item>
+        <item>Integer</item>
+        <item>Long</item>
+        <item>Float</item>
+        <item>Double</item>
+        <item>Boolean</item>
+    </string-array>
+</resources>

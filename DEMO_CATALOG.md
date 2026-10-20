@@ -1,0 +1,87 @@
+# App1 / App2 全类型演示目录
+
+两个 App 的首页各有 33 个数据入口和 2 个事件入口。**同名 Activity 分别属于 App1 和 App2 两个独立工程**：App1 页面负责授权、初始写入与修改，App2 页面负责单次读取和持续监听。源码在 [App1 页面目录](App1/app/src/main/java/com/oem/globaldata/app1/) 和 [App2 页面目录](App2/app/src/main/java/com/oem/globaldata/app2/)。
+
+每个 Activity 都有一份独立的 `<layout>` XML，分别位于 [App1 布局目录](App1/app/src/main/res/layout/) 和 [App2 布局目录](App2/app/src/main/res/layout/)。两个 App 的 Gradle 工程均启用 `dataBinding`。阅读时先看 XML 中的 `android:id`、文字和输入类型，再看同名 Activity 通过生成的 `Activity...Binding` 字段读取控件、绑定按钮并调用 SDK；源码不动态创建控件，也不调用 `findViewById`。
+
+运行前需将 GlobalData 服务和 Bridge 集成进 Android 16 镜像。先在同一 Android 用户下安装两个同变体 APK，再解锁用户。普通应用选 `publicAppDebug`；平台签名实验选 `platformAppDebug`，还须使用目标系统平台密钥签名。两个变体不能在同一包名下同时安装。
+
+## 33 类数据案例
+
+表中每行对应 **App1 写入 Activity + App2 读取/监听 Activity**。集合页可切换六种类型，每种类型使用不同 Key；33 个数据页面共演示 78 个业务地址。
+
+| Store | 类型 | `DeviceDataKeys` 工厂 | 真实 Key 名 | 两端 Activity 类名 |
+|---|---|---|---|---|
+| MEMORY | int 操作计数 | `memoryIntOperationCount(system)` | `operation_count` | `MemoryIntDemoActivity` |
+| MEMORY | long 累计传输字节数 | `memoryLongTotalTransferBytes(system)` | `total_transfer_bytes` | `MemoryLongDemoActivity` |
+| MEMORY | float 下载进度比例 | `memoryFloatDownloadProgressRatio(system)` | `download_progress_ratio` | `MemoryFloatDemoActivity` |
+| MEMORY | double 传感器温度 | `memoryDoubleSensorTemperatureCelsius(system)` | `sensor_temperature_celsius` | `MemoryDoubleDemoActivity` |
+| MEMORY | boolean 通知开关 | `memoryBooleanNotificationsEnabled(system)` | `notifications_enabled` | `MemoryBooleanDemoActivity` |
+| MEMORY | String 欢迎消息 | `memoryStringWelcomeMessage(system)` | `welcome_message` | `MemoryStringDemoActivity` |
+| MEMORY | DeviceConfig 对象 | `memoryObjectDeviceConfig(system)` | `device_config` | `MemoryObjectDemoActivity` |
+| MEMORY | List 六种类型 | `memoryListStringRecentTags(system)`（默认 String） | `recent_tags` | `MemoryListDemoActivity` |
+| MEMORY | Map 六种值类型 | `memoryMapStringStringDisplayOptions(system)`（默认 String） | `display_options` | `MemoryMapDemoActivity` |
+| MEMORY | Set 六种类型 | `memorySetStringEnabledFeatureFlags(system)`（默认 String） | `enabled_feature_flags` | `MemorySetDemoActivity` |
+| MEMORY | byte[] 诊断字节 | `memoryBytesDiagnosticBytes(system)` | `diagnostic_bytes` | `MemoryBytesDemoActivity` |
+| FILE | int 操作计数 | `fileIntOperationCount(system)` | `operation_count` | `FileIntDemoActivity` |
+| FILE | long 累计传输字节数 | `fileLongTotalTransferBytes(system)` | `total_transfer_bytes` | `FileLongDemoActivity` |
+| FILE | float 下载进度比例 | `fileFloatDownloadProgressRatio(system)` | `download_progress_ratio` | `FileFloatDemoActivity` |
+| FILE | double 传感器温度 | `fileDoubleSensorTemperatureCelsius(system)` | `sensor_temperature_celsius` | `FileDoubleDemoActivity` |
+| FILE | boolean 通知开关 | `fileBooleanNotificationsEnabled(system)` | `notifications_enabled` | `FileBooleanDemoActivity` |
+| FILE | String 欢迎消息 | `fileStringWelcomeMessage(system)` | `welcome_message` | `FileStringDemoActivity` |
+| FILE | DeviceConfig 对象 | `fileObjectDeviceConfig(system)` | `device_config` | `FileObjectDemoActivity` |
+| FILE | List 六种类型 | `fileListStringRecentTags(system)`（默认 String） | `recent_tags` | `FileListDemoActivity` |
+| FILE | Map 六种值类型 | `fileMapStringStringDisplayOptions(system)`（默认 String） | `display_options` | `FileMapDemoActivity` |
+| FILE | Set 六种类型 | `fileSetStringEnabledFeatureFlags(system)`（默认 String） | `enabled_feature_flags` | `FileSetDemoActivity` |
+| FILE | byte[] 诊断字节 | `fileBytesDiagnosticBytes(system)` | `diagnostic_bytes` | `FileBytesDemoActivity` |
+| DATABASE | int 操作计数 | `databaseIntOperationCount(system)` | `operation_count` | `DatabaseIntDemoActivity` |
+| DATABASE | long 累计传输字节数 | `databaseLongTotalTransferBytes(system)` | `total_transfer_bytes` | `DatabaseLongDemoActivity` |
+| DATABASE | float 下载进度比例 | `databaseFloatDownloadProgressRatio(system)` | `download_progress_ratio` | `DatabaseFloatDemoActivity` |
+| DATABASE | double 传感器温度 | `databaseDoubleSensorTemperatureCelsius(system)` | `sensor_temperature_celsius` | `DatabaseDoubleDemoActivity` |
+| DATABASE | boolean 通知开关 | `databaseBooleanNotificationsEnabled(system)` | `notifications_enabled` | `DatabaseBooleanDemoActivity` |
+| DATABASE | String 欢迎消息 | `databaseStringWelcomeMessage(system)` | `welcome_message` | `DatabaseStringDemoActivity` |
+| DATABASE | DeviceConfig 对象 | `databaseObjectDeviceConfig(system)` | `device_config` | `DatabaseObjectDemoActivity` |
+| DATABASE | List 六种类型 | `databaseListStringRecentTags(system)`（默认 String） | `recent_tags` | `DatabaseListDemoActivity` |
+| DATABASE | Map 六种值类型 | `databaseMapStringStringDisplayOptions(system)`（默认 String） | `display_options` | `DatabaseMapDemoActivity` |
+| DATABASE | Set 六种类型 | `databaseSetStringEnabledFeatureFlags(system)`（默认 String） | `enabled_feature_flags` | `DatabaseSetDemoActivity` |
+| DATABASE | byte[] 诊断字节 | `databaseBytesDiagnosticBytes(system)` | `diagnostic_bytes` | `DatabaseBytesDemoActivity` |
+
+集合页的 String 选项沿用上表原 Key 和 JSON 格式。其他类型使用 `DeviceDataKeys` 中明确命名的 Store 方法：下表写的是去掉 `memory`、`file`、`database` 前缀后的方法名与业务 Key，例如 `ListIntRecentErrorCodes` 对应 `memoryListIntRecentErrorCodes(system)`、`fileListIntRecentErrorCodes(system)` 和 `databaseListIntRecentErrorCodes(system)`。名称中的 `MapStringInt` 表示 `Map<String,Integer>`，`Object` 表示 `DeviceConfig`。scope、owner、namespace、key 不参与方法命名。每一种集合格式都有独立 `ValueCodec`，不由通用工厂生成；三个 Store 的同名 Key 仍是不同地址。
+
+| 值类型 | List 工厂 / Key | Map<String,T> 工厂 / Key | Set 工厂 / Key |
+|---|---|---|---|
+| Integer | `ListIntRecentErrorCodes` / `recent_error_codes` | `MapStringIntModuleRetryCounts` / `module_retry_counts` | `SetIntSupportedChannelIds` / `supported_channel_ids` |
+| Long | `ListLongTransferCheckpointsBytes` / `transfer_checkpoints_bytes` | `MapStringLongDeviceTransferTotalsBytes` / `device_transfer_totals_bytes` | `SetLongActiveSessionIds` / `active_session_ids` |
+| Float | `ListFloatDownloadProgressSamples` / `download_progress_samples` | `MapStringFloatFeatureWeightRatios` / `feature_weight_ratios` | `SetFloatThresholdRatios` / `threshold_ratios` |
+| Double | `ListDoubleTemperatureSamplesCelsius` / `temperature_samples_celsius` | `MapStringDoubleSensorCalibrationOffsets` / `sensor_calibration_offsets` | `SetDoubleTemperatureAlarmThresholdsCelsius` / `temperature_alarm_thresholds_celsius` |
+| Boolean | `ListBooleanRecentHealthChecks` / `recent_health_checks` | `MapStringBooleanModuleEnabledStates` / `module_enabled_states` | `SetBooleanObservedBinaryStates` / `observed_binary_states` |
+
+每一行按以下顺序操作：
+
+1. 打开 App1 对应页，点击「授权并写入初始值」。该页先以真实 App1 Binder UID 授予 App2 `READ | OBSERVE`，授权成功后才调用 `put`。**App2 必须已经安装**，以便服务端记录其签名身份。
+2. 打开 App2 同名页。页面会自动执行 `observeAndRead`，即先订阅再读取一次当前值；也可点击「单独读取一次」。若之前未授权，完成 App1 操作后点击「开始或重试监听」。
+3. 集合页先在两个 App 选择同一种元素类型，再保持 App2 页打开，返回 App1 修改输入并点击第二个写入按钮。App2 在监听回调中显示 `present`、新值与 revision。切换类型时 App2 关闭旧订阅并订阅新 Key；快速连续写入允许合并为最终快照。
+4. 返回页面或重试监听时，旧 `Subscription` 被关闭；Activity 销毁时关闭订阅和 `GlobalDataManager`。
+
+int 首次写入 `9999`，输入框可修改 32 位整数。long 首次写入 `4294967296`（超出 int 上限）；float 首次写入 `0.75`；double 首次写入 `23.625`。浮点输入允许普通小数、`NaN`、`Infinity` 和 `-Infinity`，按 IEEE 754 编码，并保留带符号零。boolean 用勾选框切换。String 输入 UTF-8 文本。`DeviceConfig` 页编辑业务编号、设备名、启用状态与分组，客户端 Codec 编成 JSON/UTF-8。集合页 List/Set 用逗号分隔元素，Map 每行输入 `key=value`；数字会检查格式与范围，Boolean 只接受 `true` 或 `false`。List/Map 的空输入和 Map 重复 key 会被拒绝；Set 重复元素也会报错，空输入则写入有效的空 Set。Set<Boolean> 最多有两个不同元素。选择 Float/Double 时可以输入 `NaN`、`Infinity`，但 Set 会按 Java 的相等语义拒绝重复 NaN。原 String 集合仍使用 JSON/UTF-8；新增数值/布尔集合使用版本 1 的长度前缀二进制格式。`byte[]` 页输入偶数位十六进制，例如 `0A FF 01`，读出后仍以 HEX 显示。每个值最多 64 KiB。
+
+78 个地址使用 App1 owner；普通变体用 `USER_CE + share.com.oem.globaldata.app1`，平台变体用 `DEVICE_DE + sys.device`。`BuildConfig.SYSTEM_SCOPE` 只改变地址，**不授予平台权限**。三个 Store 可以使用相同业务 Key，因为 Store 类型也参与数据定位与隔离。同一个 namespace 的授权覆盖其中三个 Store 的所有 Key；不同 Codec 仍由客户端按 Key 分别解码。
+
+`MEMORY` 只暂存在系统服务进程内，服务重启后需要重新写入。`FILE` 把同一 namespace 的多个 Key 保存到文件快照；`DATABASE` 把 Key 保存在 SQLite。File/SQLite 成功响应表示本次持久化提交已完成；普通 App 的 `USER_CE` 在首次解锁前不可访问。具体设备重启和断电结果仍需目标设备验收。
+
+## 两个方向的无载荷事件
+
+| 方向 | App1 页面 | App2 页面 | Topic 工厂 | App2 所需权限 |
+|---|---|---|---|---|
+| App1 → App2 | `EventSendConfigRefreshedActivity` | `EventReceiveConfigRefreshedActivity` | `DeviceTopics.app1ToApp2ConfigRefreshedEvent(system)` | `SUBSCRIBE` |
+| App2 → App1 | `EventReceiveRefreshRequestActivity` | `EventSendRefreshRequestActivity` | `DeviceTopics.app2ToApp1ConfigRefreshRequestEvent(system)` | `PUBLISH` |
+
+**App1 → App2：**App1 发送页先点击授予订阅权限；App2 打开接收页并确认订阅成功；最后在 App1 点击发布。**App2 → App1：**App1 接收页先授予发布权限并开始接收；App2 再打开发送页点击发布。接收页只显示 topic 到达次数；若需要配置内容，另外读取数据 Key。EventHub 只转发给在线授权订阅者，不保存 payload，也不补发离线事件。
+
+撤权演示：App1 在两个事件页分别撤销 App2 的 `SUBSCRIBE` 或 `PUBLISH`，再从另一端重试接收或发送；预期收不到新事件或发送返回 `PERMISSION_DENIED`。App1 可用原授权按钮重新授权，App2 接收页需点击「开始或重试接收」。接收页的「取消订阅」会释放在线订阅；取消期间发布的事件不会在重新订阅时补发。数据授权与事件授权相互独立。
+
+## 构建与验证
+
+在 `globaldata-sdk` 下运行 `gradlew.bat :client:testDebugUnitTest :device-contracts:testDebugUnitTest`；在 App1、App2 工程分别运行 `gradlew.bat :app:assemblePublicAppDebug :app:assemblePlatformAppDebug`。Android Studio 可分别打开三个工程。没有接入定制系统的 Android 16 设备时，本机编译不能证明跨 App 授权、监听、事件转发和重启持久化的设备行为。
+
+设备验收还应在解锁前访问普通变体 `USER_CE` 以观察 `LOCKED`；重新开机后比较 MEMORY 消失与 FILE/DATABASE 保留；在自定义系统上重启 GlobalData 所在进程后观察数据订阅重连、当前值重读以及事件不补发；平台签名变体验证 `DEVICE_DE`。这些操作依赖已集成服务的系统镜像和目标平台密钥，不能由当前 APK 编译结果代替。

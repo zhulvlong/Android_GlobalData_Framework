@@ -1,0 +1,17 @@
+apply plugin: 'com.android.library'
+apply plugin: 'maven-publish'
+android {
+    namespace 'com.oem.globaldata.contracts'
+    compileSdk 36
+    defaultConfig { minSdk 36 }
+    compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
+    publishing { singleVariant('release') }
+}
+dependencies {
+    api project(':client')
+    testImplementation 'junit:junit:4.13.2'
+    testImplementation 'org.json:json:20240303'
+}
+afterEvaluate {
+    publishing { publications { release(MavenPublication) { from components.release } } }
+}

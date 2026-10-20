@@ -1,0 +1,2 @@
+# Append to system/sepolicy/public/service.te (do not replace that file).
+type globaldata_service, app_api_service, system_server_service, service_manager_type;

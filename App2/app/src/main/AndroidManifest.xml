@@ -1,0 +1,45 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application android:label="GlobalData APP2" android:theme="@android:style/Theme.Material.Light.NoActionBar">
+        <activity android:name=".MemoryIntDemoActivity" android:exported="false" />
+        <activity android:name=".MemoryLongDemoActivity" android:exported="false" />
+        <activity android:name=".MemoryFloatDemoActivity" android:exported="false" />
+        <activity android:name=".MemoryDoubleDemoActivity" android:exported="false" />
+        <activity android:name=".MemoryBooleanDemoActivity" android:exported="false" />
+        <activity android:name=".MemoryStringDemoActivity" android:exported="false" />
+        <activity android:name=".MemoryObjectDemoActivity" android:exported="false" />
+        <activity android:name=".MemoryListDemoActivity" android:exported="false" />
+        <activity android:name=".MemoryMapDemoActivity" android:exported="false" />
+        <activity android:name=".MemorySetDemoActivity" android:exported="false" />
+        <activity android:name=".MemoryBytesDemoActivity" android:exported="false" />
+        <activity android:name=".FileIntDemoActivity" android:exported="false" />
+        <activity android:name=".FileLongDemoActivity" android:exported="false" />
+        <activity android:name=".FileFloatDemoActivity" android:exported="false" />
+        <activity android:name=".FileDoubleDemoActivity" android:exported="false" />
+        <activity android:name=".FileBooleanDemoActivity" android:exported="false" />
+        <activity android:name=".FileStringDemoActivity" android:exported="false" />
+        <activity android:name=".FileObjectDemoActivity" android:exported="false" />
+        <activity android:name=".FileListDemoActivity" android:exported="false" />
+        <activity android:name=".FileMapDemoActivity" android:exported="false" />
+        <activity android:name=".FileSetDemoActivity" android:exported="false" />
+        <activity android:name=".FileBytesDemoActivity" android:exported="false" />
+        <activity android:name=".DatabaseIntDemoActivity" android:exported="false" />
+        <activity android:name=".DatabaseLongDemoActivity" android:exported="false" />
+        <activity android:name=".DatabaseFloatDemoActivity" android:exported="false" />
+        <activity android:name=".DatabaseDoubleDemoActivity" android:exported="false" />
+        <activity android:name=".DatabaseBooleanDemoActivity" android:exported="false" />
+        <activity android:name=".DatabaseStringDemoActivity" android:exported="false" />
+        <activity android:name=".DatabaseObjectDemoActivity" android:exported="false" />
+        <activity android:name=".DatabaseListDemoActivity" android:exported="false" />
+        <activity android:name=".DatabaseMapDemoActivity" android:exported="false" />
+        <activity android:name=".DatabaseSetDemoActivity" android:exported="false" />
+        <activity android:name=".DatabaseBytesDemoActivity" android:exported="false" />
+        <activity android:name=".EventReceiveConfigRefreshedActivity" android:exported="false" />
+        <activity android:name=".EventSendRefreshRequestActivity" android:exported="false" />
+        <activity android:name=".MainActivity" android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>

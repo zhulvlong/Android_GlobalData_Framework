@@ -1,0 +1,195 @@
+<?xml version="1.0" encoding="utf-8"?>
+<layout xmlns:android="http://schemas.android.com/apk/res/android">
+    <data />
+    <ScrollView
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:fillViewport="true">
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="16dp">
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:id="@+id/mode"
+                android:text="当前模式"
+                android:textSize="17sp" />
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:id="@+id/instructions"
+                android:text="先安装 App2；各写入页会授予 App2 读取和监听权限。"
+                android:textSize="17sp" />
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="MEMORY · 内存暂存"
+                android:textSize="17sp" />
+            <Button
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:id="@+id/memoryIntButton"
+                android:text="int 操作计数 · 写入" />
+            <Button
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:id="@+id/memoryLongButton"
+                android:text="long 累计传输字节数 · 写入" />
+            <Button
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:id="@+id/memoryFloatButton"
+                android:text="float 下载进度比例 · 写入" />
+            <Button
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:id="@+id/memoryDoubleButton"
+                android:text="double 传感器温度（°C） · 写入" />
+            <Button
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:id="@+id/memoryBooleanButton"
+                android:text="boolean 通知开关 · 写入" />
+            <Button
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:id="@+id/memoryStringButton"
+                android:text="String 欢迎消息 · 写入" />
+            <Button
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:id="@+id/memoryObjectButton"
+                android:text="DeviceConfig 对象 · 写入" />
+            <Button
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:id="@+id/memoryListButton"
+                android:text="List 六种类型 · 写入" />
+            <Button android:id="@+id/memoryMapButton" android:layout_width="match_parent"
+                android:layout_height="wrap_content" android:text="Map 六种值类型 · 写入" />
+            <Button android:id="@+id/memorySetButton" android:layout_width="match_parent"
+                android:layout_height="wrap_content" android:text="Set 六种类型 · 写入" />
+            <Button android:id="@+id/memoryBytesButton" android:layout_width="match_parent"
+                android:layout_height="wrap_content" android:text="byte[] 诊断字节 · 写入" />
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="FILE · 文件持久化"
+                android:textSize="17sp" />
+            <Button
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:id="@+id/fileIntButton"
+                android:text="int 操作计数 · 写入" />
+            <Button
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:id="@+id/fileLongButton"
+                android:text="long 累计传输字节数 · 写入" />
+            <Button
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:id="@+id/fileFloatButton"
+                android:text="float 下载进度比例 · 写入" />
+            <Button
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:id="@+id/fileDoubleButton"
+                android:text="double 传感器温度（°C） · 写入" />
+            <Button
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:id="@+id/fileBooleanButton"
+                android:text="boolean 通知开关 · 写入" />
+            <Button
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:id="@+id/fileStringButton"
+                android:text="String 欢迎消息 · 写入" />
+            <Button
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:id="@+id/fileObjectButton"
+                android:text="DeviceConfig 对象 · 写入" />
+            <Button
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:id="@+id/fileListButton"
+                android:text="List 六种类型 · 写入" />
+            <Button android:id="@+id/fileMapButton" android:layout_width="match_parent"
+                android:layout_height="wrap_content" android:text="Map 六种值类型 · 写入" />
+            <Button android:id="@+id/fileSetButton" android:layout_width="match_parent"
+                android:layout_height="wrap_content" android:text="Set 六种类型 · 写入" />
+            <Button android:id="@+id/fileBytesButton" android:layout_width="match_parent"
+                android:layout_height="wrap_content" android:text="byte[] 诊断字节 · 写入" />
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="DATABASE · SQLite 持久化"
+                android:textSize="17sp" />
+            <Button
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:id="@+id/databaseIntButton"
+                android:text="int 操作计数 · 写入" />
+            <Button
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:id="@+id/databaseLongButton"
+                android:text="long 累计传输字节数 · 写入" />
+            <Button
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:id="@+id/databaseFloatButton"
+                android:text="float 下载进度比例 · 写入" />
+            <Button
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:id="@+id/databaseDoubleButton"
+                android:text="double 传感器温度（°C） · 写入" />
+            <Button
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:id="@+id/databaseBooleanButton"
+                android:text="boolean 通知开关 · 写入" />
+            <Button
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:id="@+id/databaseStringButton"
+                android:text="String 欢迎消息 · 写入" />
+            <Button
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:id="@+id/databaseObjectButton"
+                android:text="DeviceConfig 对象 · 写入" />
+            <Button
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:id="@+id/databaseListButton"
+                android:text="List 六种类型 · 写入" />
+            <Button android:id="@+id/databaseMapButton" android:layout_width="match_parent"
+                android:layout_height="wrap_content" android:text="Map 六种值类型 · 写入" />
+            <Button android:id="@+id/databaseSetButton" android:layout_width="match_parent"
+                android:layout_height="wrap_content" android:text="Set 六种类型 · 写入" />
+            <Button android:id="@+id/databaseBytesButton" android:layout_width="match_parent"
+                android:layout_height="wrap_content" android:text="byte[] 诊断字节 · 写入" />
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="无载荷事件：接收页必须在线，事件不会补发"
+                android:textSize="17sp" />
+            <Button
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:id="@+id/eventSendButton"
+                android:text="发送配置已刷新 → App2" />
+            <Button
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:id="@+id/eventReceiveButton"
+                android:text="接收 App2 刷新请求" />
+        </LinearLayout>
+    </ScrollView>
+</layout>

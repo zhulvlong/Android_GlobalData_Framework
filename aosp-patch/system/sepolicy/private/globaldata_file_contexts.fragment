@@ -1,0 +1,3 @@
+# Append to system/sepolicy/private/file_contexts; adjust if the vendor branch uses different DE/CE roots.
+/data/system_de/[0-9]+/globaldata(/.*)? u:object_r:globaldata_data_file:s0
+/data/system_ce/[0-9]+/globaldata(/.*)? u:object_r:globaldata_data_file:s0

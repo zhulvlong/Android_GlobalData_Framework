@@ -1,0 +1,5 @@
+# Append to system/sepolicy/private/system_server.te.
+allow system_server globaldata_data_file:dir create_dir_perms;
+allow system_server globaldata_data_file:file create_file_perms;
+allow system_server globaldata_data_file:dir relabelto;
+allow system_server globaldata_data_file:file relabelto;

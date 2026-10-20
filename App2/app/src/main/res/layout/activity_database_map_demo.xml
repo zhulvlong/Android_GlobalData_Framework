@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="utf-8"?>
+<layout xmlns:android="http://schemas.android.com/apk/res/android">
+    <data />
+    <ScrollView
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:fillViewport="true">
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="16dp">
+            <TextView
+                android:id="@+id/status"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="尚未读取"
+                android:textSize="17sp" />
+            <TextView
+                android:id="@+id/explanation"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="SQLite 持久化 · MAP。String 使用 display_options；其他类型各有独立 Key。先在 App1 选择相同类型授权写入，再读取或监听。"
+                android:textSize="17sp" />
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="选择集合数据类型（String / Integer / Long / Float / Double / Boolean）" />
+            <Spinner
+                android:id="@+id/typeSelector"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:entries="@array/collection_value_types" />
+            <Button
+                android:id="@+id/readButton"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="单独读取一次 Map" />
+            <Button
+                android:id="@+id/listenButton"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="开始或重试 Map 监听" />
+        </LinearLayout>
+    </ScrollView>
+</layout>

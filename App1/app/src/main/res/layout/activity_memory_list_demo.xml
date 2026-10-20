@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="utf-8"?>
+<layout xmlns:android="http://schemas.android.com/apk/res/android">
+    <data />
+    <ScrollView
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:fillViewport="true">
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="16dp">
+            <TextView
+                android:id="@+id/status"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="等待操作"
+                android:textSize="17sp" />
+            <TextView
+                android:id="@+id/explanation"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="内存暂存 · LIST。String 使用 recent_tags；其他类型各有独立 Key。先安装 App2，再授权并写入。"
+                android:textSize="17sp" />
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="选择集合数据类型（String / Integer / Long / Float / Double / Boolean）" />
+            <Spinner
+                android:id="@+id/typeSelector"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:entries="@array/collection_value_types" />
+            <EditText
+                android:id="@+id/tagsInput"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="设备A,设备B"
+                android:hint="逗号分隔标签"
+                android:inputType="text" />
+            <Button
+                android:id="@+id/initialButton"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="1. 授权并写入初始 List" />
+            <Button
+                android:id="@+id/updateButton"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="2. 写入输入的 List" />
+        </LinearLayout>
+    </ScrollView>
+</layout>

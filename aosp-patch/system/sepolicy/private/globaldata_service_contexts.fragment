@@ -1,0 +1,2 @@
+# Append to system/sepolicy/private/service_contexts.
+globaldata u:object_r:globaldata_service:s0
