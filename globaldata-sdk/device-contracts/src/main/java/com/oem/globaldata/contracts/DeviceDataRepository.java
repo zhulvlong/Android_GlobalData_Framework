@@ -2,6 +2,7 @@ package com.oem.globaldata.contracts;
 
 import com.oem.globaldata.client.DataSnapshot;
 import com.oem.globaldata.client.GlobalDataManager;
+import com.oem.globaldata.client.TLog;
 import com.oem.globaldata.client.WriteResult;
 import java.util.concurrent.CompletableFuture;
 
@@ -10,6 +11,8 @@ import java.util.concurrent.CompletableFuture;
  * 它不维护第二份缓存：每次调用都交给 GlobalDataManager 与系统服务交互。
  */
 public final class DeviceDataRepository {
+    private static final String TAG = "DeviceDataRepository";
+
     /** 负责 Binder 请求、Codec 编解码和连接恢复的 SDK 管理器。 */
     private final GlobalDataManager manager;
     /** 决定选用平台 DEVICE_DE/sys.* 或普通用户 USER_CE 的业务地址。 */
@@ -33,6 +36,7 @@ public final class DeviceDataRepository {
      * @return 异步写入结果；Memory 数据不跨 system_server 重启保留
      */
     public CompletableFuture<WriteResult> setMode(int mode) {
+        TLog.d(TAG, "setMode system=" + system);
         return manager.put(DeviceDataKeys.memoryIntMode(system), mode);
     }
 
@@ -42,6 +46,7 @@ public final class DeviceDataRepository {
      * @return 含状态、值与 revision 的快照 Future
      */
     public CompletableFuture<DataSnapshot<Integer>> mode() {
+        TLog.d(TAG, "mode system=" + system);
         return manager.read(DeviceDataKeys.memoryIntMode(system));
     }
 
@@ -52,6 +57,7 @@ public final class DeviceDataRepository {
      * @return 成功时包含新 revision 的 Future；失败时异常完成
      */
     public CompletableFuture<WriteResult> saveFile(DeviceConfig config) {
+        TLog.d(TAG, "saveFile system=" + system);
         return manager.put(DeviceDataKeys.fileObjectConfig(system), config);
     }
 
@@ -61,6 +67,7 @@ public final class DeviceDataRepository {
      * @return 含配置对象、schema 与 revision 的快照 Future
      */
     public CompletableFuture<DataSnapshot<DeviceConfig>> file() {
+        TLog.d(TAG, "file system=" + system);
         return manager.read(DeviceDataKeys.fileObjectConfig(system));
     }
 
@@ -71,6 +78,7 @@ public final class DeviceDataRepository {
      * @return 数据库提交后的写入结果 Future
      */
     public CompletableFuture<WriteResult> saveDatabase(DeviceConfig config) {
+        TLog.d(TAG, "saveDatabase system=" + system);
         return manager.put(DeviceDataKeys.databaseObjectConfig(system), config);
     }
 
@@ -80,6 +88,7 @@ public final class DeviceDataRepository {
      * @return 含配置对象、schema 与 revision 的快照 Future
      */
     public CompletableFuture<DataSnapshot<DeviceConfig>> database() {
+        TLog.d(TAG, "database system=" + system);
         return manager.read(DeviceDataKeys.databaseObjectConfig(system));
     }
 }

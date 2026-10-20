@@ -8,6 +8,8 @@ import java.util.concurrent.Executor;
  * 每个方法仍通过同一个类型化 manager 工作，不会另建系统服务或独立缓存。
  */
 public final class GlobalStore {
+    private static final String TAG = "GlobalStore";
+
     /** 提供实际读写、订阅和 Binder 生命周期。 */
     private final GlobalDataManager manager;
     /** 此门面固定的数据后端与设备/用户作用域。 */
@@ -26,6 +28,8 @@ public final class GlobalStore {
      * @return 可交给 manager 各类方法使用的 DataKey
      */
     public <T> DataKey<T> key(String name, ValueCodec<T> codec) {
+        TLog.d(TAG, "key factory store=" + store + " scope=" + scope + " owner="
+                + owner + " ns=" + namespace + " key=" + name);
         return DataKey.of(store, scope, owner, namespace, name, codec);
     }
     /**

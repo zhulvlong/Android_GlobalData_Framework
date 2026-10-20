@@ -25,6 +25,8 @@ import java.util.Map;
 
 /** Owner and grants are bound to package plus current signing certificates, never bare UID. */
 final class AccessController {
+    private static final String TAG = "AccessController";
+
     private static final int MAGIC = 0x47444131, VERSION = 1;
     private final Context context;
     private final AtomicFile file;
@@ -47,6 +49,7 @@ final class AccessController {
     }
     AccessController(Context context) {
         this.context = context;
+        TLog.d(TAG, "initialize");
         File dir = new File(Environment.getDataSystemDeDirectory(0), "globaldata");
         if (!dir.exists()) {
             if (!dir.mkdirs() || !SELinux.restoreconRecursive(dir))
@@ -54,6 +57,8 @@ final class AccessController {
         }
         file = new AtomicFile(new File(dir, "acl-v1.bin"));
         load();
+        TLog.d(TAG, "loaded owners=" + owners.size() + " grants=" + grants.size()
+                + " readOnly=" + readOnly);
     }
     static Resource data(StoreAddress key) {
         return new Resource(Wire.RESOURCE_DATA, key.scope, key.userId, key.owner, key.namespace);
@@ -123,43 +128,81 @@ final class AccessController {
         return true;
     }
     synchronized int check(int uid, Resource r, int required) {
+        TLog.d(TAG, "check uid=" + uid + " " + TLog.address(r) + " required=" + required);
         if (r.scope == Wire.USER_CE) {
             UserManager users = context.getSystemService(UserManager.class);
-            if (users == null || !users.isUserUnlocked(UserHandle.of(r.userId))) return Wire.LOCKED;
+            if (users == null || !users.isUserUnlocked(UserHandle.of(r.userId))) {
+                TLog.w(TAG, "locked uid=" + uid + " user=" + r.userId);
+                return Wire.LOCKED;
+            }
         }
-        if (!available(r, uid)) return Wire.PERMISSION_DENIED;
+        if (!available(r, uid)) {
+            TLog.w(TAG, "unavailable uid=" + uid + " scope=" + r.scope);
+            return Wire.PERMISSION_DENIED;
+        }
         String ownerDigest = owners.get(r.id());
         if (uidOwns(uid, r.owner)) {
             String current = signature(r.owner, r.userId);
-            if (current != null && (ownerDigest == null || current.equals(ownerDigest))) return Wire.OK;
+            if (current != null && (ownerDigest == null || current.equals(ownerDigest))) {
+                TLog.d(TAG, "owner allowed uid=" + uid + " " + TLog.address(r));
+                return Wire.OK;
+            }
         }
         String[] packages = context.getPackageManager().getPackagesForUid(uid);
         if (packages != null) for (String pkg : packages) {
             Grant grant = grants.get(r.id() + "|" + pkg);
             if (grant != null && (grant.rights & required) == required
-                    && grant.signature.equals(signature(pkg, r.userId))) return Wire.OK;
+                    && grant.signature.equals(signature(pkg, r.userId))) {
+                TLog.d(TAG, "grant allowed uid=" + uid + " target=" + pkg
+                        + " " + TLog.address(r));
+                return Wire.OK;
+            }
         }
+        TLog.w(TAG, "permission denied uid=" + uid + " required=" + required);
         return Wire.PERMISSION_DENIED;
     }
     int ensureOwner(int uid, Resource r) {
+        TLog.d(TAG, "ensureOwner uid=" + uid + " " + TLog.address(r));
         if (r.scope == Wire.USER_CE) {
             UserManager users = context.getSystemService(UserManager.class);
-            if (users == null || !users.isUserUnlocked(UserHandle.of(r.userId)))
+            if (users == null || !users.isUserUnlocked(UserHandle.of(r.userId))) {
+                TLog.w(TAG, "owner check locked uid=" + uid + " user=" + r.userId);
                 return Wire.LOCKED;
+            }
         }
-        if (!available(r, uid) || !uidOwns(uid, r.owner)) return Wire.PERMISSION_DENIED;
+        if (!available(r, uid) || !uidOwns(uid, r.owner)) {
+            TLog.w(TAG, "owner check denied uid=" + uid + " reason=identity_or_scope");
+            return Wire.PERMISSION_DENIED;
+        }
         String digest = signature(r.owner, r.userId);
-        if (digest == null) return Wire.PERMISSION_DENIED;
+        if (digest == null) {
+            TLog.w(TAG, "owner check denied uid=" + uid + " reason=signature_unavailable");
+            return Wire.PERMISSION_DENIED;
+        }
         String prior = owners.get(r.id());
-        if (prior != null && !prior.equals(digest)) return Wire.PERMISSION_DENIED;
+        if (prior != null && !prior.equals(digest)) {
+            TLog.w(TAG, "owner check denied uid=" + uid + " reason=signature_changed");
+            return Wire.PERMISSION_DENIED;
+        }
         if (prior == null) {
-            if (readOnly) return Wire.STORAGE_UNAVAILABLE;
+            if (readOnly) {
+                TLog.e(TAG, "owner check unavailable reason=read_only");
+                return Wire.STORAGE_UNAVAILABLE;
+            }
             owners.put(r.id(), digest);
-            try { persist(); } catch (RuntimeException e) { owners.remove(r.id()); return Wire.STORAGE_UNAVAILABLE; }
+            try {
+                persist();
+                TLog.d(TAG, "owner persisted uid=" + uid + " " + TLog.address(r));
+            } catch (RuntimeException e) {
+                TLog.e(TAG, "owner persist failed type=" + e.getClass().getSimpleName());
+                owners.remove(r.id()); return Wire.STORAGE_UNAVAILABLE;
+            }
         }
         return Wire.OK;
     }
     synchronized int authorize(int uid, Resource r, int right, boolean createOwner) {
+        TLog.d(TAG, "authorize uid=" + uid + " right=" + right
+                + " createOwner=" + createOwner + " " + TLog.address(r));
         // Shared writers may use an owner's grant; only the actual owner creates its identity record.
         if (createOwner && uidOwns(uid, r.owner)) {
             int status = ensureOwner(uid, r); if (status != Wire.OK) return status;
@@ -167,17 +210,30 @@ final class AccessController {
         return check(uid, r, right);
     }
     synchronized int changeGrant(int uid, Resource r, String target, int rights, boolean grant) {
+        TLog.d(TAG, (grant ? "grant" : "revoke") + " uid=" + uid + " " + TLog.address(r)
+                + " target=" + target + " rights=" + rights);
         int allowed = r.type == Wire.RESOURCE_DATA
                 ? Wire.READ | Wire.WRITE | Wire.DELETE | Wire.OBSERVE
                 : Wire.PUBLISH | Wire.SUBSCRIBE;
-        if (rights == 0 || (rights & ~allowed) != 0 || !StoreAddress.name(target, 180))
+        if (rights == 0 || (rights & ~allowed) != 0 || !StoreAddress.name(target, 180)) {
+            TLog.w(TAG, "grant rejected uid=" + uid + " reason=invalid_request");
             return Wire.BAD_REQUEST;
+        }
         int owner = ensureOwner(uid, r);
-        if (owner != Wire.OK) return owner;
-        if (readOnly) return Wire.STORAGE_UNAVAILABLE;
+        if (owner != Wire.OK) {
+            TLog.w(TAG, "grant rejected uid=" + uid + " status=" + owner);
+            return owner;
+        }
+        if (readOnly) {
+            TLog.e(TAG, "grant unavailable reason=read_only");
+            return Wire.STORAGE_UNAVAILABLE;
+        }
         String id = r.id() + "|" + target; Grant prior = grants.get(id);
         String digest = grant ? signature(target, r.userId) : null;
-        if (grant && digest == null) return Wire.NOT_FOUND;
+        if (grant && digest == null) {
+            TLog.d(TAG, "grant target not found target=" + target);
+            return Wire.NOT_FOUND;
+        }
         // A reinstalled package with a different signer never inherits its old grant bits.
         if (grant) grants.put(id, new Grant(digest,
                 rights | (prior != null && digest.equals(prior.signature) ? prior.rights : 0)));
@@ -185,8 +241,13 @@ final class AccessController {
             int remaining = prior.rights & ~rights;
             if (remaining == 0) grants.remove(id); else grants.put(id, new Grant(prior.signature, remaining));
         }
-        try { persist(); return Wire.OK; }
+        try {
+            persist();
+            TLog.d(TAG, "grant record persisted target=" + target + " rights=" + rights);
+            return Wire.OK;
+        }
         catch (RuntimeException e) {
+            TLog.e(TAG, "grant persist failed type=" + e.getClass().getSimpleName());
             if (prior == null) grants.remove(id); else grants.put(id, prior);
             return Wire.STORAGE_UNAVAILABLE;
         }
@@ -201,6 +262,7 @@ final class AccessController {
             count = in.readInt(); if (count < 0 || count > 100000) throw new IOException("grant count");
             for (int i = 0; i < count; i++) grants.put(in.readUTF(), new Grant(in.readUTF(), in.readInt()));
         } catch (IOException e) {
+            TLog.e(TAG, "load failed type=" + e.getClass().getSimpleName());
             owners.clear(); grants.clear(); readOnly = true; // Fail closed; never overwrite damaged ACL.
         }
     }
@@ -216,6 +278,7 @@ final class AccessController {
             }
             out.flush(); file.finishWrite(raw);
         } catch (IOException e) {
+            TLog.e(TAG, "commit failed type=" + e.getClass().getSimpleName());
             if (raw != null) file.failWrite(raw);
             throw new IllegalStateException("ACL commit failed", e);
         }

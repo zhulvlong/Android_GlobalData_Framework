@@ -30,6 +30,8 @@ import java.util.function.UnaryOperator;
  * 异步 API 返回 Future，阻塞 API 只能在非主线程使用；用毕需 {@link #close()}。
  */
 public final class GlobalDataManager implements AutoCloseable {
+    private static final String TAG = "GlobalDataManager";
+
     /** 只保留 Application Context，避免异步订阅延长 Activity 生命周期。 */
     private final Context context;
     /** 同一 manager 的读写、授权和初始订阅按提交顺序执行。 */
@@ -60,12 +62,16 @@ public final class GlobalDataManager implements AutoCloseable {
         if (closed) throw new IllegalStateException("closed");
         // 仅复用仍活着的 Binder；新连接必须重新核对 capability。
         if (remote != null && remote.asBinder().isBinderAlive()) return remote;
+        TLog.d(TAG, "binder connect start");
         IBinder binder;
         // 未刷入定制镜像时可能缺少 Bridge 类，统一映射为服务不可用。
         try { binder = GlobalDataBridge.getTransportBinder(); }
         catch (LinkageError e) { binder = null; }
-        if (binder == null) throw new GlobalDataException(Wire.STORAGE_UNAVAILABLE,
-                "GlobalData Bridge unavailable; install the custom system image");
+        if (binder == null) {
+            TLog.e(TAG, "binder unavailable");
+            throw new GlobalDataException(Wire.STORAGE_UNAVAILABLE,
+                    "GlobalData Bridge unavailable; install the custom system image");
+        }
         IGlobalDataTransport candidate = IGlobalDataTransport.Stub.asInterface(binder);
         try {
             // 版本和完整功能位不满足要求时立即拒绝，避免在旧服务上执行错误语义。
@@ -79,27 +85,40 @@ public final class GlobalDataManager implements AutoCloseable {
                 throw new GlobalDataException(Wire.UNSUPPORTED, "invalid server capabilities");
             if ((caps.getLong(Wire.FEATURES) & Wire.ALL_FEATURES) != Wire.ALL_FEATURES)
                 throw new GlobalDataException(Wire.UNSUPPORTED, "required capability missing");
+            TLog.d(TAG, "capabilities major=" + caps.getInt(Wire.MAJOR)
+                    + " minor=" + caps.getInt(Wire.MINOR) + " maxBytes=" + caps.getInt(Wire.MAX_BYTES)
+                    + " features=" + caps.getLong(Wire.FEATURES));
         } catch (RemoteException e) { throw failed(e); }
         // 先登记死亡通知，再让其他线程看到此代理。
         try { binder.linkToDeath(death, 0); }
         catch (RemoteException e) { throw failed(e); }
         remote = candidate;
+        TLog.i(TAG, "binder connected");
         return candidate;
     }
     /** 将服务端非 OK 的 Bundle 统一变成带状态码的异常。 */
     private static void check(Bundle result) {
-        if (result == null) throw new GlobalDataException(Wire.STORAGE_UNAVAILABLE, "null response");
+        if (result == null) {
+            TLog.e(TAG, "null binder response");
+            throw new GlobalDataException(Wire.STORAGE_UNAVAILABLE, "null response");
+        }
         // 缺少 status 本身是异常响应，不能误判为成功。
         int status = result.getInt(Wire.STATUS, Wire.BAD_REQUEST);
-        if (status != Wire.OK)
+        if (status != Wire.OK) {
+            if (status == Wire.CONFLICT || status == Wire.NOT_FOUND) TLog.d(TAG, "status=" + status);
+            else if (status == Wire.PERMISSION_DENIED || status == Wire.LOCKED) TLog.w(TAG, "status=" + status);
+            else TLog.e(TAG, "status=" + status);
             throw new GlobalDataException(status, "GlobalData status " + status);
+        }
     }
     /** 保留 Binder 异常链并统一映射为 STORAGE_UNAVAILABLE。 */
     private static GlobalDataException failed(RemoteException e) {
+        TLog.e(TAG, "binder failure type=" + e.getClass().getSimpleName());
         return new GlobalDataException(Wire.STORAGE_UNAVAILABLE, "Binder transport failed", e);
     }
     /** Binder 死亡可能发生在任意 Binder 线程，旧订阅 ID 已不能继续使用。 */
     private void onDeath() {
+        TLog.w(TAG, "binder died subscriptions=" + subscriptions.size());
         synchronized (this) { remote = null; }
         for (BaseSub sub : subscriptions) {
             // 重连后必须向新服务实例重新注册。
@@ -111,10 +130,12 @@ public final class GlobalDataManager implements AutoCloseable {
     /** 每两秒重试，恢复数据订阅后主动读当前值；离线事件不会补发。 */
     private synchronized void scheduleRetry() {
         if (closed || (retryTask != null && !retryTask.isDone())) return;
+        TLog.d(TAG, "reconnect scheduled");
         retryTask = reconnect.scheduleWithFixedDelay(() -> {
             if (closed) return;
             try {
                 IGlobalDataTransport t = transport();
+                TLog.d(TAG, "reconnect transport ready subscriptions=" + subscriptions.size());
                 for (BaseSub sub : subscriptions) {
                     try {
                         sub.register(t);
@@ -132,8 +153,12 @@ public final class GlobalDataManager implements AutoCloseable {
                 synchronized (GlobalDataManager.this) {
                     retryTask.cancel(false); retryTask = null;
                 }
+                TLog.i(TAG, "reconnect complete");
             }
-            catch (RuntimeException ignored) { /* 服务可能尚未启动，保留周期重试。 */ }
+            catch (RuntimeException ignored) {
+                TLog.d(TAG, "reconnect pending cause=" + ignored.getClass().getSimpleName());
+                /* 服务可能尚未启动，保留周期重试。 */
+            }
         }, 1, 2, TimeUnit.SECONDS);
     }
 
@@ -153,6 +178,8 @@ public final class GlobalDataManager implements AutoCloseable {
      */
     public <T> DataSnapshot<T> readBlocking(DataKey<T> key) {
         background();
+        long started = System.nanoTime();
+        TLog.d(TAG, "read request " + TLog.address(key));
         try {
             Bundle result = transport().read(key.wire());
             if (result == null) throw new GlobalDataException(Wire.STORAGE_UNAVAILABLE, "null response");
@@ -169,12 +196,22 @@ public final class GlobalDataManager implements AutoCloseable {
                         encoded.getInt(Wire.SCHEMA_VERSION));
             }
             // 即使值不存在，revision 和 epoch 仍描述本次读取的服务端状态。
-            return new DataSnapshot<>(present, value, result.getLong(Wire.REVISION),
+            DataSnapshot<T> snapshot = new DataSnapshot<>(present, value, result.getLong(Wire.REVISION),
                     result.getString(Wire.EPOCH));
+            TLog.d(TAG, "read result " + TLog.address(key) + " present=" + present
+                    + " revision=" + snapshot.revision + " epoch=" + snapshot.serviceEpoch
+                    + " ms=" + ((System.nanoTime() - started) / 1_000_000L));
+            return snapshot;
         // 传输失败先使旧连接失效，再交给业务处理本次失败。
         } catch (RemoteException e) { onDeath(); throw failed(e); }
-        catch (GlobalDataException e) { throw e; }
-        catch (Exception e) { throw new GlobalDataException(Wire.BAD_REQUEST, "decode failed", e); }
+        catch (GlobalDataException e) {
+            TLog.d(TAG, "read rejected " + TLog.address(key) + " status=" + e.status);
+            throw e;
+        }
+        catch (Exception e) {
+            TLog.e(TAG, "read decode failure type=" + e.getClass().getSimpleName());
+            throw new GlobalDataException(Wire.BAD_REQUEST, "decode failed", e);
+        }
     }
     /**
      * 异步 upsert：Key 不存在时创建，已存在时覆盖。
@@ -223,6 +260,9 @@ public final class GlobalDataManager implements AutoCloseable {
     private <T> WriteResult writeBlocking(DataKey<T> key, T value, int mode,
             long revision, String expectedEpoch) {
         background();
+        long started = System.nanoTime();
+        TLog.d(TAG, "write request " + TLog.address(key) + " mode=" + mode
+                + " expectedRevision=" + revision + " expectedEpoch=" + expectedEpoch);
         // null 不表示删除，避免 Codec 和服务端对“空值”产生不同解释。
         if (value == null) throw new IllegalArgumentException("null values are not supported; remove the key");
         try {
@@ -235,15 +275,26 @@ public final class GlobalDataManager implements AutoCloseable {
             encoded.putInt(Wire.SCHEMA_VERSION, key.codec.schemaVersion());
             encoded.putString(Wire.ENCODING, key.codec.encoding());
             encoded.putByteArray(Wire.PAYLOAD, bytes);
+            TLog.d(TAG, "write encoded schema=" + encoded.getString(Wire.SCHEMA_ID)
+                    + " version=" + encoded.getInt(Wire.SCHEMA_VERSION) + " bytes=" + bytes.length);
             Bundle request = key.wire();
             // CAS 除 revision 外还比较服务实例，防止 system_server 重启后的 ABA。
             if (mode == Wire.IF_REVISION) request.putString(Wire.EXPECTED_EPOCH, expectedEpoch);
             // 持久化后端确认提交才返回 OK；服务端负责发数据通知。
             Bundle result = transport().write(request, encoded, mode, revision); check(result);
-            return new WriteResult(result.getLong(Wire.REVISION), result.getString(Wire.EPOCH));
+            WriteResult written = new WriteResult(result.getLong(Wire.REVISION), result.getString(Wire.EPOCH));
+            TLog.d(TAG, "write result " + TLog.address(key) + " revision=" + written.revision
+                    + " epoch=" + written.serviceEpoch + " ms=" + ((System.nanoTime() - started) / 1_000_000L));
+            return written;
         } catch (RemoteException e) { onDeath(); throw failed(e); }
-        catch (GlobalDataException e) { throw e; }
-        catch (Exception e) { throw new GlobalDataException(Wire.BAD_REQUEST, "encode failed", e); }
+        catch (GlobalDataException e) {
+            TLog.d(TAG, "write rejected " + TLog.address(key) + " status=" + e.status);
+            throw e;
+        }
+        catch (Exception e) {
+            TLog.e(TAG, "write encode failure type=" + e.getClass().getSimpleName());
+            throw new GlobalDataException(Wire.BAD_REQUEST, "encode failed", e);
+        }
     }
     /**
      * 便利的“读取→计算→CAS”修改，遇版本冲突最多重试三次。
@@ -254,13 +305,18 @@ public final class GlobalDataManager implements AutoCloseable {
     public <T> CompletableFuture<WriteResult> update(DataKey<T> key, UnaryOperator<T> updater) {
         return CompletableFuture.supplyAsync(() -> {
             for (int i = 0; i < 3; i++) {
+                TLog.d(TAG, "CAS attempt=" + (i + 1) + " " + TLog.address(key));
                 DataSnapshot<T> old = readBlocking(key);
                 T next = updater.apply(old.value);
                 // 只对冲突重新读取；权限、编码或服务错误应直接交给业务处理。
                 try { return writeBlocking(key, next, Wire.IF_REVISION,
                         old.revision, old.serviceEpoch); }
-                catch (GlobalDataException e) { if (e.status != Wire.CONFLICT) throw e; }
+                catch (GlobalDataException e) {
+                    if (e.status != Wire.CONFLICT) throw e;
+                    TLog.d(TAG, "CAS conflict attempt=" + (i + 1) + " " + TLog.address(key));
+                }
             }
+            TLog.d(TAG, "CAS retry limit " + TLog.address(key));
             throw new GlobalDataException(Wire.CONFLICT, "CAS retry limit reached");
         }, io);
     }
@@ -288,6 +344,9 @@ public final class GlobalDataManager implements AutoCloseable {
     private WriteResult removeBlocking(DataKey<?> key, long expectedRevision,
             String expectedEpoch) {
         background();
+        long started = System.nanoTime();
+        TLog.d(TAG, "delete request " + TLog.address(key) + " expectedRevision="
+                + expectedRevision + " expectedEpoch=" + expectedEpoch);
         try {
             Bundle request = key.wire();
             if (expectedRevision >= 0) request.putString(Wire.EXPECTED_EPOCH, expectedEpoch);
@@ -295,14 +354,28 @@ public final class GlobalDataManager implements AutoCloseable {
             if (result == null) throw new GlobalDataException(Wire.STORAGE_UNAVAILABLE, "null response");
             // 重复删除不存在的 Key 不当作业务错误，但保留服务端版本高水位。
             if (result.getInt(Wire.STATUS, Wire.BAD_REQUEST) != Wire.NOT_FOUND) check(result);
-            return new WriteResult(result.getLong(Wire.REVISION), result.getString(Wire.EPOCH));
+            WriteResult removed = new WriteResult(result.getLong(Wire.REVISION), result.getString(Wire.EPOCH));
+            TLog.d(TAG, "delete result " + TLog.address(key) + " status="
+                    + result.getInt(Wire.STATUS) + " revision=" + removed.revision
+                    + " epoch=" + removed.serviceEpoch + " ms=" + ((System.nanoTime() - started) / 1_000_000L));
+            return removed;
         } catch (RemoteException e) { onDeath(); throw failed(e); }
     }
     /** grant/revoke 共用的后台 Binder 路径；服务端根据真实调用 UID 判断是否 owner。 */
     private void aclBlocking(Bundle resource, String targetPackage, int rights, boolean grant) {
         background();
-        try { check(grant ? transport().grant(resource, targetPackage, rights)
-                          : transport().revoke(resource, targetPackage, rights)); }
+        long started = System.nanoTime();
+        TLog.d(TAG, (grant ? "grant" : "revoke") + " resource=" + resource.getInt(Wire.RESOURCE)
+                + " scope=" + resource.getInt(Wire.SCOPE) + " owner=" + resource.getString(Wire.OWNER)
+                + " name=" + (resource.getInt(Wire.RESOURCE) == Wire.RESOURCE_DATA
+                        ? resource.getString(Wire.NAMESPACE) : resource.getString(Wire.TOPIC))
+                + " target=" + targetPackage + " rights=" + rights);
+        try {
+            check(grant ? transport().grant(resource, targetPackage, rights)
+                        : transport().revoke(resource, targetPackage, rights));
+            TLog.d(TAG, (grant ? "grant" : "revoke") + " result status=" + Wire.OK
+                    + " ms=" + ((System.nanoTime() - started) / 1_000_000L));
+        }
         catch (RemoteException e) { onDeath(); throw failed(e); }
     }
     /** 单目标授权和撤销都在 manager 的串行 I/O 队列执行。 */
@@ -397,13 +470,17 @@ public final class GlobalDataManager implements AutoCloseable {
      */
     public <T> CompletableFuture<Subscription> observeAndRead(DataKey<T> key,
             Executor callbackExecutor, DataListener<T> listener) {
+        TLog.d(TAG, "observe request " + TLog.address(key));
         return CompletableFuture.supplyAsync(() -> {
             DataSub<T> sub = new DataSub<>(key, callbackExecutor, listener);
             // 先纳入 manager 生命周期，Binder 死亡时才能一起恢复。
             subscriptions.add(sub);
             // 先注册再读取，缩小初始读取与后续变化之间的漏通知窗口。
             try { sub.register(transport()); sub.refresh(); return sub; }
-            catch (RuntimeException e) { subscriptions.remove(sub); throw e; }
+            catch (RuntimeException e) {
+                TLog.w(TAG, "observe failed type=" + e.getClass().getSimpleName());
+                subscriptions.remove(sub); throw e;
+            }
         }, io);
     }
     /** @return 复用当前 manager 的无载荷事件门面，不新建 Binder 服务 */
@@ -441,23 +518,35 @@ public final class GlobalDataManager implements AutoCloseable {
     /** EventBus.post 的实际后台 Binder 调用；成功表示接受排队，事件不落盘。 */
     CompletableFuture<Void> post(EventTopic topic) {
         return CompletableFuture.runAsync(() -> {
-            try { check(transport().publishEvent(topic.wire())); }
+            long started = System.nanoTime();
+            TLog.d(TAG, "event publish request " + TLog.address(topic));
+            try {
+                check(transport().publishEvent(topic.wire()));
+                TLog.d(TAG, "event publish accepted " + TLog.address(topic)
+                        + " ms=" + ((System.nanoTime() - started) / 1_000_000L));
+            }
             catch (RemoteException e) { onDeath(); throw failed(e); }
         }, io);
     }
     /** 注册 EventBus 的在线 topic 监听；与数据订阅共用重连和关闭逻辑。 */
     CompletableFuture<Subscription> subscribe(EventTopic topic, Executor callbackExecutor,
                                                java.util.function.Consumer<EventTopic> listener) {
+        TLog.d(TAG, "event subscribe request " + TLog.address(topic));
         return CompletableFuture.supplyAsync(() -> {
             EventSub sub = new EventSub(topic, callbackExecutor, listener);
             // 先纳入 manager，服务进程死亡时才会重新注册。
             subscriptions.add(sub);
             try { sub.register(transport()); return sub; }
-            catch (RuntimeException e) { subscriptions.remove(sub); throw e; }
+            catch (RuntimeException e) {
+                TLog.w(TAG, "event subscribe failed type=" + e.getClass().getSimpleName());
+                subscriptions.remove(sub); throw e;
+            }
         }, io);
     }
     /** 数据与事件订阅共用的 ID、Binder 归属、关闭和重连状态。 */
     private abstract class BaseSub implements Subscription {
+        private static final String TAG = "GlobalDataManager.BaseSub";
+
         /** 当前服务实例分配的订阅 ID；服务重启后会被替换。 */
         volatile long id;
         /** 停止标志使已排队但尚未投递的回调不再触达业务代码。 */
@@ -471,6 +560,7 @@ public final class GlobalDataManager implements AutoCloseable {
         /** 从 manager 生命周期移除订阅，并在 I/O 线程向原服务实例退订。 */
         @Override public void close() {
             if (stopped) return;
+            TLog.d(TAG, "subscription close id=" + id + " type=" + getClass().getSimpleName());
             stopped = true; subscriptions.remove(this);
             io.execute(() -> {
                 IGlobalDataTransport t = remote;
@@ -485,16 +575,21 @@ public final class GlobalDataManager implements AutoCloseable {
     }
     /** 一个 Key 对应一个远端观察者，收到通知后读取服务端当前快照。 */
     private final class DataSub<T> extends BaseSub {
+        private static final String TAG = "GlobalDataManager.DataSub";
+
         /** Key、串行回调执行器和业务监听者绑定在订阅生命周期内。 */
         final DataKey<T> key; final Executor callback; final DataListener<T> listener;
         /** oneway Binder 回调不解析业务值，只把读取工作交给 I/O 队列。 */
         final IDataObserver observer = new IDataObserver.Stub() {
             /** 通知是变化提示；重新读取可合并连续写入并取得权威当前值。 */
             @Override public void onDataChanged(Bundle event) {
+                TLog.d(TAG, "data invalidation id=" + id + " " + TLog.address(key));
                 if (!stopped) io.execute(DataSub.this::refresh);
             }
             /** 通知队列溢出时先提示业务，再主动读取补齐最新状态。 */
             @Override public void onResyncRequired(String epoch) {
+                TLog.w(TAG, "data resync required id=" + id);
+                TLog.d(TAG, "data resync epoch=" + epoch + " " + TLog.address(key));
                 resync();
                 io.execute(DataSub.this::refresh);
             }
@@ -512,35 +607,46 @@ public final class GlobalDataManager implements AutoCloseable {
             // AIDL 只返回 -1 而非详细状态，当前客户端统一映射为权限拒绝。
             if (id <= 0) throw new GlobalDataException(Wire.PERMISSION_DENIED, "data subscription rejected");
             registeredBinder = t.asBinder();
+            TLog.d(TAG, "data subscribed id=" + id + " " + TLog.address(key));
         }
         /** 在后台读当前快照，再按调用方指定的 Executor 交付业务回调。 */
         void refresh() {
             if (stopped) return;
+            TLog.d(TAG, "data refresh id=" + id + " " + TLog.address(key));
             try {
                 DataSnapshot<T> snapshot = readBlocking(key);
+                TLog.d(TAG, "data callback queued id=" + id + " present=" + snapshot.present
+                        + " revision=" + snapshot.revision);
                 callback.execute(() -> { if (!stopped) listener.onChanged(snapshot); });
             } catch (Throwable e) {
+                TLog.w(TAG, "data refresh failed id=" + id + " type=" + e.getClass().getSimpleName());
                 // 读取失败不会把旧值当作新值通知业务。
                 callback.execute(() -> { if (!stopped) listener.onError(e); });
             }
         }
         /** 服务重启或通知溢出时提醒界面当前显示可能暂时过期。 */
         @Override void resync() {
+            TLog.d(TAG, "data resync callback id=" + id + " " + TLog.address(key));
             if (!stopped) callback.execute(() -> {
                 if (!stopped) listener.onResyncRequired();
             });
         }
         /** 重连后若权限被撤销，将失败交给数据监听者。 */
         @Override void notifyFailure(Throwable error) {
+            TLog.w(TAG, "data subscription failed id=" + id
+                    + " type=" + error.getClass().getSimpleName());
             callback.execute(() -> listener.onError(error));
         }
         /** 只退订当前 ID；Binder 已死亡时失败可忽略。 */
         @Override void unsubscribe(IGlobalDataTransport t) {
+            TLog.d(TAG, "data unsubscribe id=" + id + " " + TLog.address(key));
             try { t.unsubscribeData(id); } catch (RemoteException ignored) {}
         }
     }
     /** 在线 topic 订阅，不保存事件、也不在重连后重放离线事件。 */
     private final class EventSub extends BaseSub {
+        private static final String TAG = "GlobalDataManager.EventSub";
+
         /** 完整 topic 地址与按订阅排序的回调执行器。 */
         final EventTopic topic; final Executor callback;
         /** 业务只接收 EventTopic，不接收来自服务端的任意业务对象。 */
@@ -549,6 +655,7 @@ public final class GlobalDataManager implements AutoCloseable {
         final IEventListener observer = new IEventListener.Stub() {
             /** 服务端事件 Bundle 仅作到达信号，不包含业务 payload。 */
             @Override public void onEvent(Bundle event) {
+                TLog.d(TAG, "event arrived id=" + id + " " + TLog.address(topic));
                 if (!stopped) callback.execute(() -> {
                     if (!stopped) listener.accept(topic);
                 });
@@ -567,14 +674,17 @@ public final class GlobalDataManager implements AutoCloseable {
             // AIDL 失败只返回 -1，无法仅从这里区分权限和数量限制。
             if (id <= 0) throw new GlobalDataException(Wire.PERMISSION_DENIED, "event subscription rejected");
             registeredBinder = t.asBinder();
+            TLog.d(TAG, "event subscribed id=" + id + " " + TLog.address(topic));
         }
         /** 仅对注册该 ID 的服务实例退订。 */
         @Override void unsubscribe(IGlobalDataTransport t) {
+            TLog.d(TAG, "event unsubscribe id=" + id + " " + TLog.address(topic));
             try { t.unsubscribeEvent(id); } catch (RemoteException ignored) {}
         }
     }
     /** 停止重连和新任务，关闭所有订阅并解除 Binder 死亡监听。 */
     @Override public void close() {
+        TLog.d(TAG, "manager close subscriptions=" + subscriptions.size());
         closed = true;
         // 先排入各订阅的退订动作，再停止 I/O 执行器接收新任务。
         for (BaseSub sub : subscriptions) sub.close();

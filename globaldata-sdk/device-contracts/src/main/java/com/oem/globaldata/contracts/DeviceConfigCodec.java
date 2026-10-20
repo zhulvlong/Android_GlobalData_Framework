@@ -1,6 +1,7 @@
 package com.oem.globaldata.contracts;
 
 import com.oem.globaldata.client.ValueCodec;
+import com.oem.globaldata.client.TLog;
 import java.nio.charset.StandardCharsets;
 import org.json.JSONObject;
 
@@ -9,6 +10,8 @@ import org.json.JSONObject;
  * 对字段的解释由使用同一 Contracts AAR 的客户端负责。
  */
 public final class DeviceConfigCodec implements ValueCodec<DeviceConfig> {
+    private static final String TAG = "DeviceConfigCodec";
+
     /** 无状态 Codec 的共享实例，所有业务 Key 使用相同格式约定。 */
     public static final DeviceConfigCodec INSTANCE = new DeviceConfigCodec();
 
@@ -32,6 +35,7 @@ public final class DeviceConfigCodec implements ValueCodec<DeviceConfig> {
      * @throws Exception JSON 构造失败时由 SDK 向调用方报告
      */
     @Override public byte[] encode(DeviceConfig value) throws Exception {
+        TLog.d(TAG, "encode schema=" + schemaId() + " version=" + schemaVersion());
         JSONObject json = new JSONObject();
         // 字段名是 App1/App2 的持久化契约；更名需要迁移旧数据。
         json.put("deviceId", value.deviceId);
@@ -39,7 +43,9 @@ public final class DeviceConfigCodec implements ValueCodec<DeviceConfig> {
         json.put("enabled", value.enabled);
         json.put("group", value.group);
         // 统一字符集，使不同进程/设备的字节内容可互相解码。
-        return json.toString().getBytes(StandardCharsets.UTF_8);
+        byte[] encoded = json.toString().getBytes(StandardCharsets.UTF_8);
+        TLog.d(TAG, "encoded bytes=" + encoded.length);
+        return encoded;
     }
 
     /**
@@ -51,6 +57,8 @@ public final class DeviceConfigCodec implements ValueCodec<DeviceConfig> {
      * @throws Exception 版本不支持或 JSON 字段缺失、类型错误时抛出
      */
     @Override public DeviceConfig decode(byte[] bytes, int version) throws Exception {
+        TLog.d(TAG, "decode schema=" + schemaId() + " version=" + version
+                + " bytes=" + (bytes == null ? -1 : bytes.length));
         // 拒绝未知未来版本，避免在不理解新增语义时静默按旧格式读取。
         if (version < 1 || version > 2) throw new IllegalArgumentException("unsupported schema " + version);
         JSONObject json = new JSONObject(new String(bytes, StandardCharsets.UTF_8));

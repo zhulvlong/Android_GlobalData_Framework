@@ -4,13 +4,17 @@ import android.app.Activity;
 import android.content.Intent;
 import android.os.Bundle;
 import com.oem.globaldata.app1.databinding.ActivityMainBinding;
+import com.oem.globaldata.client.TLog;
 
 /** XML 首页目录：每个按钮进入单独的数据或事件演示 Activity。 */
 public final class MainActivity extends Activity {
+    private static final String TAG = "MainActivity";
+
     private ActivityMainBinding binding;
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
+        TLog.d(TAG, "catalog opened systemScope=" + BuildConfig.SYSTEM_SCOPE);
         // Data Binding 生成的强类型字段与 XML 的 android:id 一一对应。
         binding = ActivityMainBinding.inflate(getLayoutInflater());
         setContentView(binding.getRoot());
@@ -55,6 +59,7 @@ public final class MainActivity extends Activity {
     }
 
     private void open(Class<? extends Activity> page) {
+        TLog.d(TAG, "open demo page=" + page.getSimpleName());
         startActivity(new Intent(this, page));
     }
 }

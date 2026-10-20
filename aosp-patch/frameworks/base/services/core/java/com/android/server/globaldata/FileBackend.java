@@ -19,6 +19,8 @@ import java.util.zip.CRC32;
 
 /** One bounded AtomicFile snapshot per verified owner/scope/namespace. */
 final class FileBackend implements Backend {
+    private static final String TAG = "FileBackend";
+
     private static final int MAGIC = 0x47444631, VERSION = 1, MAX_FILE = 1024 * 1024;
     private final Map<String, Namespace> cache = new HashMap<>();
     private static final class Namespace {
@@ -50,7 +52,11 @@ final class FileBackend implements Backend {
     }
     private Namespace ns(StoreAddress key) {
         Namespace found = cache.get(key.namespaceId());
-        if (found != null) return found;
+        if (found != null) {
+            TLog.d(TAG, "cache hit " + TLog.address(key));
+            return found;
+        }
+        TLog.d(TAG, "load namespace " + TLog.address(key));
         AtomicFile file = file(key); Namespace loaded = new Namespace();
         if (file.getBaseFile().exists()
                 || new File(file.getBaseFile().getPath() + ".bak").exists()) {
@@ -81,8 +87,13 @@ final class FileBackend implements Backend {
                 if (input.available() != 8) throw new IOException("trailing data");
                 long saved = input.readLong(); CRC32 crc = new CRC32(); crc.update(bytes, 0, crcStart);
                 if (saved != crc.getValue()) throw new IOException("checksum mismatch");
-            } catch (IOException e) { throw new IllegalStateException("file store unavailable", e); }
+            } catch (IOException e) {
+                TLog.e(TAG, "load failed type=" + e.getClass().getSimpleName());
+                throw new IllegalStateException("file store unavailable", e);
+            }
         }
+        TLog.d(TAG, "loaded namespace " + TLog.address(key)
+                + " records=" + loaded.records.size() + " revision=" + loaded.highWater);
         cache.put(key.namespaceId(), loaded); return loaded;
     }
     private static void commit(StoreAddress key, Namespace next) {
@@ -103,37 +114,52 @@ final class FileBackend implements Backend {
             if (bytes.size() > MAX_FILE) throw new IllegalArgumentException("namespace file quota");
             stream = atomic.startWrite(); stream.write(bytes.toByteArray());
             atomic.finishWrite(stream);
+            TLog.d(TAG, "commit complete " + TLog.address(key) + " revision=" + next.highWater
+                    + " bytes=" + bytes.size());
         } catch (IOException e) {
+            TLog.e(TAG, "commit failed type=" + e.getClass().getSimpleName());
             if (stream != null) atomic.failWrite(stream);
             throw new IllegalStateException("file commit failed", e);
         }
     }
     @Override public synchronized Snapshot read(StoreAddress key) {
         Namespace ns = ns(key); StoredValue value = ns.records.get(key.key);
+        TLog.d(TAG, "read " + TLog.address(key) + " present=" + (value != null)
+                + " revision=" + (value == null ? ns.highWater : value.revision));
         return new Snapshot(value, value == null ? ns.highWater : value.revision);
     }
     @Override public synchronized Change write(StoreAddress key, StoredValue value, int mode, long expected) {
         Namespace current = ns(key); StoredValue old = current.records.get(key.key);
         int status = Backend.precondition(old, current.highWater, mode, expected);
-        if (status != Wire.OK) return new Change(status, 0,
-                old == null ? current.highWater : old.revision);
+        if (status != Wire.OK) {
+            TLog.d(TAG, "write precondition " + TLog.address(key) + " status=" + status);
+            return new Change(status, 0, old == null ? current.highWater : old.revision);
+        }
         Namespace next = new Namespace(); next.records.putAll(current.records);
         next.highWater = current.highWater + 1;
         next.records.put(key.key, value.withRevision(next.highWater));
         try { commit(key, next); } catch (IllegalArgumentException quota) {
+            TLog.d(TAG, "write quota " + TLog.address(key));
             return new Change(Wire.QUOTA_EXCEEDED, 0, current.highWater);
         }
         cache.put(key.namespaceId(), next);
+        TLog.d(TAG, "write committed " + TLog.address(key) + " revision=" + next.highWater);
         return new Change(Wire.OK, old == null ? Wire.CREATE_OP : Wire.UPDATE_OP, next.highWater);
     }
     @Override public synchronized Change delete(StoreAddress key, long expected) {
         Namespace current = ns(key); StoredValue old = current.records.get(key.key);
-        if (old == null) return new Change(Wire.NOT_FOUND, 0, current.highWater);
-        if (expected >= 0 && expected != old.revision)
+        if (old == null) {
+            TLog.d(TAG, "delete absent " + TLog.address(key) + " revision=" + current.highWater);
+            return new Change(Wire.NOT_FOUND, 0, current.highWater);
+        }
+        if (expected >= 0 && expected != old.revision) {
+            TLog.d(TAG, "delete conflict " + TLog.address(key) + " revision=" + old.revision);
             return new Change(Wire.CONFLICT, 0, old.revision);
+        }
         Namespace next = new Namespace(); next.records.putAll(current.records);
         next.records.remove(key.key); next.highWater = current.highWater + 1;
         commit(key, next); cache.put(key.namespaceId(), next);
+        TLog.d(TAG, "delete committed " + TLog.address(key) + " revision=" + next.highWater);
         return new Change(Wire.OK, Wire.DELETE_OP, next.highWater);
     }
 }

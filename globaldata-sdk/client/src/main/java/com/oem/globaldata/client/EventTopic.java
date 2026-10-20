@@ -5,6 +5,8 @@ import com.oem.globaldata.ipc.Wire;
 
 /** 无载荷事件的地址；同一 scope、owner、topic 才属于同一事件流。 */
 public final class EventTopic {
+    private static final String TAG = "EventTopic";
+
     /** 事件的设备级或用户级地址范围，授权也按此范围区分。 */
     public final int scope;
     /** owner 管理发布/订阅授权；topic 是需要精确匹配的完整事件名。 */
@@ -21,6 +23,8 @@ public final class EventTopic {
      * @return 不可变的事件地址
      */
     public static EventTopic of(int scope, String ownerPackage, String topic) {
+        TLog.d(TAG, "event topic scope=" + scope + " owner=" + ownerPackage
+                + " topic=" + topic);
         return new EventTopic(scope, ownerPackage, topic);
     }
     /** @return 只含 scope、owner 和 topic 的传输 Bundle，不包含 payload */

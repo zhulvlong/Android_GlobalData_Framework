@@ -11,6 +11,8 @@ import java.util.Objects;
  * @param <T> 客户端看到的值类型
  */
 public final class DataKey<T> {
+    private static final String TAG = "DataKey";
+
     /** 存储后端与用户/设备作用域，两者共同参与地址隔离。 */
     public final int store, scope;
     /** owner 决定授权管理者；namespace 是授权分组；key 是组内单条记录名。 */
@@ -37,6 +39,8 @@ public final class DataKey<T> {
      */
     public static <T> DataKey<T> of(int store, int scope, String ownerPackage,
                                      String namespace, String key, ValueCodec<T> codec) {
+        TLog.d(TAG, "data key store=" + store + " scope=" + scope + " owner="
+                + ownerPackage + " ns=" + namespace + " key=" + key);
         return new DataKey<>(store, scope, ownerPackage, namespace, key, codec);
     }
     /**

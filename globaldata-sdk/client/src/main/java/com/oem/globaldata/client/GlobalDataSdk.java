@@ -4,6 +4,8 @@ import android.content.Context;
 
 /** 客户端入口，只负责建立 manager；Binder 真正连接发生在首次操作时。 */
 public final class GlobalDataSdk {
+    private static final String TAG = "GlobalDataSdk";
+
     /** 工具类不创建实例。 */
     private GlobalDataSdk() {}
     /**
@@ -12,6 +14,7 @@ public final class GlobalDataSdk {
      * @return 需在业务生命周期结束时 close 的 GlobalDataManager
      */
     public static GlobalDataManager connect(Context context) {
+        TLog.d(TAG, "manager create package=" + context.getPackageName());
         return new GlobalDataManager(context.getApplicationContext());
     }
 }

@@ -4,14 +4,14 @@
 
 ## 1. 源码放置
 
-将 `aosp-patch/frameworks/base/core/java/android/globaldata/GlobalDataBridge.java` 放到 AOSP 同名路径。将 `aosp-patch/frameworks/base/services/core/java/com/android/server/globaldata/` 和 `.../com/oem/globaldata/ipc/` 两个目录放到 AOSP 同名路径。若工作区与 AOSP checkout 位于同一台 Linux 主机，可在 AOSP 根目录执行以下复制命令（先将引号中的示例路径换成真实绝对路径）：
+将 `aosp-patch/frameworks/base/core/java/android/globaldata/` 中的 `GlobalDataBridge.java` 和包内 `TLog.java` 放到 AOSP 同名路径。将 `aosp-patch/frameworks/base/services/core/java/com/android/server/globaldata/`（包含服务侧 `TLog.java`）和 `.../com/oem/globaldata/ipc/` 两个目录放到 AOSP 同名路径。若工作区与 AOSP checkout 位于同一台 Linux 主机，可在 AOSP 根目录执行以下复制命令（先将引号中的示例路径换成真实绝对路径）：
 
 ```sh
 export GD_PATCH="/absolute/path/to/Android_GlobalData_Framework/aosp-patch"
 mkdir -p frameworks/base/core/java/android/globaldata
 mkdir -p frameworks/base/services/core/java/com/android/server/globaldata
 mkdir -p frameworks/base/services/core/java/com/oem/globaldata/ipc
-cp "$GD_PATCH/frameworks/base/core/java/android/globaldata/GlobalDataBridge.java" frameworks/base/core/java/android/globaldata/
+cp "$GD_PATCH/frameworks/base/core/java/android/globaldata/GlobalDataBridge.java" "$GD_PATCH/frameworks/base/core/java/android/globaldata/TLog.java" frameworks/base/core/java/android/globaldata/
 cp "$GD_PATCH"/frameworks/base/services/core/java/com/android/server/globaldata/*.java frameworks/base/services/core/java/com/android/server/globaldata/
 cp "$GD_PATCH"/frameworks/base/services/core/java/com/oem/globaldata/ipc/* frameworks/base/services/core/java/com/oem/globaldata/ipc/
 ```
@@ -81,3 +81,14 @@ cd ..; .\verification\verify.ps1
 6. 新增 DeviceConfig 字段和 Topic 时，仅重建 Contracts AAR 与相关 APK；确认系统镜像二进制不变。
 
 本地只能验证 SDK/App 构建和可脱离系统的单元逻辑；重启、签名权限、CE/DE、SELinux、断电与系统服务恢复必须在刷入目标镜像的设备上完成。
+
+## 6. GlobalData 调试日志
+
+Bridge、系统服务、SDK、Contracts 与两个演示 App 使用同一个 logcat tag：`GlobalData`。日志消息以打印位置的类名作为二级 TAG，例如 `[GlobalEventBus]`；嵌套类使用 `[GlobalDataManager.DataSub]` 形式。参考白板工程的 `TLog` 调用方式，仓库为各编译环境提供独立实现；不需要白板工程依赖或 `Settings.Global` 开关。详细日志默认关闭，可在调试设备上启用并按进程/线程时间查看：
+
+```sh
+adb shell setprop log.tag.GlobalData DEBUG
+adb logcat -v threadtime -s GlobalData:V
+```
+
+详细记录包含层级、操作、完整数据地址或事件 topic、UID/User、状态、revision、服务 epoch 与耗时；日志不含业务值、payload、签名或密钥。警告和错误在详细日志关闭时仍会输出，并仅包含必要的状态与错误类型。调试结束可执行 `adb shell setprop log.tag.GlobalData INFO` 关闭详细日志。跨进程请求没有额外追踪字段；对照时间、地址、epoch 与 revision 分析 App → SDK → Bridge/Binder → 系统服务 → 后端、通知或事件链路。

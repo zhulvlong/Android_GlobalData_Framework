@@ -42,7 +42,10 @@ $sources = @(
     (Join-Path $server 'com\android\server\globaldata\Backend.java'),
     (Join-Path $server 'com\android\server\globaldata\StoreAddress.java'),
     (Join-Path $server 'com\android\server\globaldata\StoredValue.java'),
+    (Join-Path $server 'com\android\server\globaldata\TLog.java'),
     (Join-Path $server 'com\android\server\globaldata\MemoryBackend.java'),
+    (Join-Path $PSScriptRoot 'stubs\android\util\Log.java'),
+    (Join-Path $PSScriptRoot 'stubs\com\android\server\globaldata\AccessController.java'),
     (Join-Path $PSScriptRoot 'BackendSemantics.java')
 )
 & $javac -encoding UTF-8 -cp $androidJar -d $out @sources

@@ -12,11 +12,17 @@ import java.util.Map;
 
 /** Per-scope/user SQLite KV. Namespace high-water makes physical delete ABA-safe. */
 final class DatabaseBackend implements Backend {
+    private static final String TAG = "DatabaseBackend";
+
     private final Map<String, SQLiteDatabase> dbs = new HashMap<>();
     private SQLiteDatabase db(StoreAddress key) {
         String id = key.scope + "|" + key.userId;
         SQLiteDatabase db = dbs.get(id);
-        if (db != null && db.isOpen()) return db;
+        if (db != null && db.isOpen()) {
+            TLog.d(TAG, "connection reused scope=" + key.scope + " user=" + key.userId);
+            return db;
+        }
+        TLog.d(TAG, "opening scope=" + key.scope + " user=" + key.userId);
         File parent = key.scope == Wire.USER_CE
                 ? Environment.getDataSystemCeDirectory(key.userId)
                 : Environment.getDataSystemDeDirectory(key.userId);
@@ -58,20 +64,29 @@ final class DatabaseBackend implements Backend {
     }
     @Override public synchronized Snapshot read(StoreAddress key) {
         SQLiteDatabase db = db(key); StoredValue value = value(db, key);
-        return new Snapshot(value, value == null ? highWater(db, key) : value.revision);
+        long revision = value == null ? highWater(db, key) : value.revision;
+        TLog.d(TAG, "read " + TLog.address(key) + " present=" + (value != null)
+                + " revision=" + revision);
+        return new Snapshot(value, revision);
     }
     @Override public synchronized Change write(StoreAddress key, StoredValue proposed, int mode, long expected) {
         SQLiteDatabase db = db(key); db.beginTransaction();
         try {
             StoredValue old = value(db, key); long high = highWater(db, key);
             int status = Backend.precondition(old, high, mode, expected);
-            if (status != Wire.OK) return new Change(status, 0, old == null ? high : old.revision);
+            if (status != Wire.OK) {
+                TLog.d(TAG, "write precondition " + TLog.address(key) + " status=" + status);
+                return new Change(status, 0, old == null ? high : old.revision);
+            }
             // Count only current payloads; transaction serializes concurrent writers.
             try (Cursor c = db.rawQuery("SELECT COALESCE(SUM(LENGTH(payload)),0) FROM kv WHERE owner=?",
                     new String[]{key.owner})) {
                 c.moveToFirst();
                 long used = c.getLong(0) + proposed.payload.length - (old == null ? 0 : old.payload.length);
-                if (used > 16L * 1024 * 1024) return new Change(Wire.QUOTA_EXCEEDED, 0, high);
+                if (used > 16L * 1024 * 1024) {
+                    TLog.d(TAG, "write quota " + TLog.address(key) + " bytes=" + used);
+                    return new Change(Wire.QUOTA_EXCEEDED, 0, high);
+                }
             }
             long revision = high + 1;
             ContentValues values = new ContentValues(); values.put("owner", key.owner);
@@ -83,21 +98,37 @@ final class DatabaseBackend implements Backend {
                     SQLiteDatabase.CONFLICT_REPLACE) < 0)
                 throw new IllegalStateException("value insert failed");
             setHighWater(db, key, revision); db.setTransactionSuccessful();
+            TLog.d(TAG, "write transaction marked successful " + TLog.address(key)
+                    + " revision=" + revision);
             return new Change(Wire.OK, old == null ? Wire.CREATE_OP : Wire.UPDATE_OP, revision);
-        } finally { db.endTransaction(); }
+        } finally {
+            db.endTransaction();
+            TLog.d(TAG, "write transaction ended " + TLog.address(key));
+        }
     }
     @Override public synchronized Change delete(StoreAddress key, long expected) {
         SQLiteDatabase db = db(key); db.beginTransaction();
         try {
             StoredValue old = value(db, key); long high = highWater(db, key);
-            if (old == null) return new Change(Wire.NOT_FOUND, 0, high);
-            if (expected >= 0 && expected != old.revision) return new Change(Wire.CONFLICT, 0, old.revision);
+            if (old == null) {
+                TLog.d(TAG, "delete absent " + TLog.address(key) + " revision=" + high);
+                return new Change(Wire.NOT_FOUND, 0, high);
+            }
+            if (expected >= 0 && expected != old.revision) {
+                TLog.d(TAG, "delete conflict " + TLog.address(key) + " revision=" + old.revision);
+                return new Change(Wire.CONFLICT, 0, old.revision);
+            }
             long revision = high + 1;
             if (db.delete("kv", "owner=? AND ns=? AND k=?",
                     new String[]{key.owner, key.namespace, key.key}) != 1)
                 throw new IllegalStateException("value delete failed");
             setHighWater(db, key, revision); db.setTransactionSuccessful();
+            TLog.d(TAG, "delete transaction marked successful " + TLog.address(key)
+                    + " revision=" + revision);
             return new Change(Wire.OK, Wire.DELETE_OP, revision);
-        } finally { db.endTransaction(); }
+        } finally {
+            db.endTransaction();
+            TLog.d(TAG, "delete transaction ended " + TLog.address(key));
+        }
     }
 }

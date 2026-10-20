@@ -5,14 +5,18 @@ import android.os.Bundle;
 import android.widget.TextView;
 import com.oem.globaldata.client.GlobalDataManager;
 import com.oem.globaldata.client.GlobalDataSdk;
+import com.oem.globaldata.client.TLog;
 
 /** 只复用客户端生命周期和状态显示；控件均在各 Activity 的 XML 中声明。 */
 abstract class DemoActivityBase extends Activity {
+    private static final String TAG = "DemoActivityBase";
+
     protected GlobalDataManager manager;
     private TextView status;
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
+        TLog.d(TAG, "open page=" + getClass().getSimpleName());
         // 本类不创建 View。子类 inflate 自己的 Data Binding 布局，再绑定状态控件。
         manager = GlobalDataSdk.connect(this);
     }
@@ -21,6 +25,9 @@ abstract class DemoActivityBase extends Activity {
     protected void bindStatus(TextView status) { this.status = status; }
 
     protected void report(String action, Object result, Throwable error) {
+        if (error == null) TLog.d(TAG, "complete page=" + getClass().getSimpleName()
+                + " action=" + action + " resultType=" + (result == null ? "none" : result.getClass().getSimpleName()));
+        else TLog.w(TAG, "failed action=" + action + " type=" + error.getClass().getSimpleName());
         runOnUiThread(() -> {
             if (isDestroyed()) return;
             status.setText(error == null ? action + "成功：" + result
@@ -28,7 +35,10 @@ abstract class DemoActivityBase extends Activity {
         });
     }
 
-    protected void invalid(String message) { status.setText(message); }
+    protected void invalid(String message) {
+        TLog.d(TAG, "input rejected page=" + getClass().getSimpleName());
+        status.setText(message);
+    }
 
     private static Throwable cause(Throwable error) {
         while (error.getCause() != null) error = error.getCause();
@@ -36,6 +46,7 @@ abstract class DemoActivityBase extends Activity {
     }
 
     @Override public void onDestroy() {
+        TLog.d(TAG, "close page=" + getClass().getSimpleName());
         manager.close();
         super.onDestroy();
     }
