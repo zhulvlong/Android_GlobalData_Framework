@@ -6,3 +6,4 @@
 *.p12
 *.pfx
 verification/build/
+/.idea/

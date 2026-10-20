@@ -56,7 +56,9 @@ m
 
 ## 4. 本地 SDK 与 APK
 
-三个独立 Android Studio 项目位于 `globaldata-sdk/`、`App1/`、`App2/`。SDK 包含 `ipc`、`client`、`device-contracts` 三个发布单元，`bridge-stubs` 只供编译。App1/App2 通过 Gradle composite build 引用同级 SDK 工程；脱离同级源码构建时先将三个 AAR 发布到 Maven 仓库，移除 `includeBuild('../globaldata-sdk')`，在 `settings.gradle` 加 `mavenLocal()` 或自己的 Maven 仓库。构建参数：API 36、AGP 8.13.1、Gradle 8.13、JDK 17。
+三个独立 Android Studio 项目位于 `globaldata-sdk/`、`App1/`、`App2/`。SDK 包含 `ipc`、`client`、`device-contracts` 三个发布单元，`bridge-stubs` 只供编译。App1/App2 通过 Gradle composite build 引用同级 SDK 工程；脱离同级源码构建时先将三个 AAR 发布到 Maven 仓库，移除 `includeBuild('../globaldata-sdk')`，在 `settings.gradle` 加 `mavenLocal()` 或自己的 Maven 仓库。当前工程配置：API 36、AGP 8.6.1、JDK 17；SDK Wrapper 为 Gradle 8.7，App1/App2 Wrapper 为 Gradle 8.13。是否能在目标构建环境完整运行，以实际构建结果为准。
+
+运行以下任务前先将 `JAVA_HOME` 指向 JDK 17；本机终端默认 JDK 11 时 AGP 会在配置阶段失败。2026-10-20 使用 JDK 17 完成 SDK Debug AAR 构建、Client/Contracts 单元测试，以及两个 App 的 `publicAppDebug` 和 `platformAppRelease` APK 构建。AGP 8.6.1 与其 D8 提示 API 36 超出该版本已测试范围；构建成功不表示此组合已完成设备兼容性验证。
 
 ```powershell
 cd globaldata-sdk; .\gradlew.bat :ipc:assembleDebug :client:assembleDebug :device-contracts:assembleDebug

@@ -1,0 +1,220 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="light">
+<meta name="description" content="GlobalData Framework v2 模块化 SDK 完整架构设计与评审文档：稳定 IPC、三种托管存储、DataKey、对象 Codec、GlobalEventBus、AOSP 集成、权限、测试与实施。">
+<title>Android GlobalData Framework v2 | 详细架构设计与技术评审</title>
+<style>
+:root {
+ --bg:#f3f6f8;--paper:#fff;--ink:#172a3a;--ink2:#334c60;--muted:#63778a;--line:#dee7eb;
+ --navy:#0b293b;--navy2:#164357;--teal:#147c78;--teal-pale:#e6f6f2;
+ --blue:#256d9b;--pale:#edf4f8;--orange:#a76c20;--warn:#fff5e7;
+ --radius:15px;--shadow:0 12px 40px rgba(31,62,86,.055);
+}
+*{box-sizing:border-box} html{scroll-behavior:smooth} body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.78 Inter,"Noto Sans SC","PingFang SC","Microsoft Yahei",system-ui,sans-serif;}
+a{color:var(--blue);text-decoration:none}a:hover{text-decoration:underline}
+button,input,textarea{font:inherit} button{cursor:pointer}button:focus-visible,input:focus-visible,textarea:focus-visible,a:focus-visible{outline:3px solid #73c7c3;outline-offset:3px}
+#skip{position:absolute;left:10px;top:-80px;background:#fff;z-index:99;padding:8px 16px}#skip:focus{top:10px}
+.shell{display:grid;grid-template-columns:276px minmax(0,1fr);min-height:100vh;max-width:1700px;margin:auto}
+.sidebar{background:#f8fafb;border-right:1px solid var(--line);position:sticky;top:0;height:100vh;overflow:auto;align-self:start;padding:27px 20px 24px;z-index:40}
+.brand{padding:0 9px 25px;border-bottom:1px solid var(--line);margin-bottom:20px}
+.mark{display:flex;align-items:center;gap:11px}.logo{display:grid;place-items:center;width:37px;height:37px;border-radius:10px;background:var(--navy);color:white;font-weight:800;letter-spacing:-1px}.brand strong{display:block;font-size:14px;letter-spacing:.15px;line-height:1.4}.brand small{display:block;color:var(--muted);font-size:11px;margin-top:2px}.side-tag{font-size:11px;color:#276659;margin-top:13px}
+.nav-header{font-size:10px;color:var(--muted);letter-spacing:1.7px;font-weight:800;margin:10px 10px 9px}
+.nav-search{width:100%;border:1px solid var(--line);border-radius:10px;padding:10px 12px;background:white;font-size:12px;margin-bottom:13px}
+.nav-link{display:flex;align-items:start;gap:10px;padding:8px 9px;border-radius:9px;color:#425970;line-height:1.35;font-size:12px;margin:2px 0;transition:.15s}
+.nav-link span{font-size:10px;color:#7995a6;letter-spacing:1px;font-weight:700;min-width:18px;padding-top:2px}.nav-link:hover,.nav-link.active{background:#e4f1f0;color:#106a67;text-decoration:none}.nav-link.active{font-weight:700}.nav-link.active span{color:var(--teal)}.nav-link[hidden]{display:none}
+.side-bottom{border-top:1px solid var(--line);padding:17px 8px 0;margin-top:15px;display:grid;gap:10px}.side-bottom a{font-size:12px;font-weight:700}.side-bottom small{font-size:11px;color:var(--muted);line-height:1.5}
+.mobilebar{display:none} .main{min-width:0;padding:32px clamp(20px,3vw,54px) 70px}
+.wrap{max-width:1100px;margin:auto}.hero{border-radius:19px;background:linear-gradient(112deg,#0b2b40 0%,#123e4d 63%,#0d615d 100%);color:#fff;padding:42px clamp(26px,4vw,48px) 35px;overflow:hidden;position:relative;box-shadow:var(--shadow)}
+.hero:after{content:'';position:absolute;right:-108px;top:-190px;width:460px;height:460px;border:1px solid rgba(255,255,255,.15);border-radius:50%;box-shadow:0 0 0 75px rgba(255,255,255,.025),0 0 0 150px rgba(255,255,255,.015);pointer-events:none}
+.hero>*{position:relative;z-index:1}.eyebrow{font-size:11px;letter-spacing:2.2px;font-weight:750;opacity:.83}.hero h1{font-size:clamp(28px,3vw,42px);font-weight:780;letter-spacing:-.7px;line-height:1.28;margin:17px 0 14px;max-width:800px}.hero p{max-width:780px;color:#d6e8ec;font-size:15px;line-height:1.8;margin:0}
+.meta{display:flex;gap:8px;flex-wrap:wrap;margin-top:25px}.meta span{padding:4px 11px;font-size:11px;background:rgba(255,255,255,.10);border:1px solid rgba(255,255,255,.18);border-radius:99px;color:#e4f5f3}
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:17px 0 24px}.stat{border:1px solid var(--line);background:var(--paper);padding:17px 19px;border-radius:13px}.stat strong{font-size:23px;line-height:1.2;display:block;color:#0d615e}.stat span{color:var(--muted);font-size:12px}
+.takeaway{background:#fff;border:1px solid #c9dcd9;border-left:5px solid var(--teal);padding:22px 26px;border-radius:0 14px 14px 0;box-shadow:var(--shadow);margin-bottom:27px}.takeaway h2{font-size:17px;margin:0 0 5px}.takeaway p{margin:0;color:#3b5b67}.takeaway em{font-style:normal;font-weight:750;color:#006e65}
+.toolbar{display:flex;justify-content:space-between;gap:10px;align-items:center;margin:23px 0 20px;flex-wrap:wrap}.toolbar .scope{color:var(--muted);font-size:12px}.actions{display:flex;gap:8px;flex-wrap:wrap}.btn{border:1px solid #cadce1;background:#fff;padding:9px 13px;color:#315267;border-radius:9px;font-size:12px;font-weight:700;display:inline-flex;gap:7px;align-items:center;justify-content:center;text-decoration:none}.btn:hover{background:#eef5f6;text-decoration:none}.btn.primary{background:var(--teal);color:#fff;border-color:var(--teal)}.btn.primary:hover{background:#126b68}
+.document{background:var(--paper);border:1px solid var(--line);border-radius:18px;box-shadow:var(--shadow);padding:14px clamp(22px,3.9vw,54px) 32px}
+.doc-section{border-top:1px solid var(--line);padding:27px 0 38px;scroll-margin-top:30px}.doc-section:first-child{border-top:0;padding-top:16px}
+.doc-section h2{font-size:clamp(21px,2vw,27px);line-height:1.42;letter-spacing:-.3px;margin:0 0 17px;font-weight:790;scroll-margin-top:30px;display:flex;align-items:center;gap:11px}.h2-accent{width:5px;height:28px;background:var(--teal);border-radius:6px;flex:none}
+.doc-section h3{font-size:16px;font-weight:760;margin:27px 0 9px;color:#174051;line-height:1.5}.doc-section h4{margin:18px 0 7px}.doc-section p{margin:12px 0;color:#364d5f}.doc-section>p:first-of-type{margin-top:0}.doc-section strong{color:#183448;font-weight:730}
+.doc-section ul,.doc-section ol{padding-left:25px;margin:11px 0}.doc-section li{padding:3px 0;color:#394f5f}.doc-section li::marker{color:#1d8881}
+.doc-section blockquote{border:1px solid #d2e5df;border-left:4px solid #29958a;border-radius:0 10px 10px 0;background:#f1faf7;padding:15px 19px;margin:21px 0}.doc-section blockquote p{margin:0;color:#2c5658}
+.doc-section code:not(pre code){font-size:.88em;background:#ecf1f4;border-radius:4px;padding:2px 5px;color:#075b6c;overflow-wrap:anywhere}
+.table-scroll{overflow:auto;border:1px solid var(--line);border-radius:10px;margin:17px 0 21px;box-shadow:0 1px 2px rgba(10,40,60,.025)}
+table{width:100%;border-collapse:collapse;font-size:12.2px;line-height:1.65;min-width:620px}thead th{background:#edf3f5;text-align:left;color:#284c60;font-weight:760;border-bottom:1px solid #cfdee2;padding:11px 12px;white-space:nowrap}tbody td{border-bottom:1px solid #e7edf0;padding:10px 12px;color:#3a5261;vertical-align:top}tbody tr:nth-child(even){background:#fbfdfd}tbody tr:last-child td{border-bottom:0}td:first-child{color:#213a4c;font-weight:560}
+pre{font-family:ui-monospace,"SFMono-Regular",Consolas,"Liberation Mono",monospace;font-size:12px;line-height:1.65;tab-size:2;overflow-x:auto;white-space:pre;margin:0;padding:19px 19px 21px;background:#10283b;color:#e3f2f4;border-radius:0 0 10px 10px;}
+pre code{font:inherit;color:inherit;background:none!important;padding:0!important;white-space:pre}
+.code-frame{margin:17px 0 22px;border:1px solid #274554;background:#10283b;border-radius:11px;overflow:hidden}.codebar{height:35px;border-bottom:1px solid #2b4b5c;color:#9ec2d2;display:flex;align-items:center;justify-content:space-between;padding:0 12px 0 17px;font:700 10px/1.1 ui-monospace,Consolas,monospace;letter-spacing:.6px}.copy-code{border:1px solid #38586c;background:#1c394e;color:#d7eef2;font-size:11px;border-radius:6px;padding:5px 10px}.copy-code:hover{background:#27506a}
+.architecture{background:#f8fbfc;border:1px solid #c7dce2;border-radius:16px;padding:17px;margin:21px 0 22px}.arch-row{border:1px solid #d6e3e8;background:#fff;border-radius:11px;padding:14px 16px}.arch-head{display:flex;gap:13px;align-items:center}.arch-num{font-weight:800;font-size:12px;color:#0c817a;border-radius:100px;border:1px solid #a5cdc8;padding:4px 9px}.arch-head strong{display:block;color:#143950;font-size:15px}.arch-head small{display:block;color:#6a7f8d;font-size:11px;line-height:1.5}.arch-cells{display:grid;grid-template-columns:repeat(3,1fr);gap:9px;margin-top:13px}.arch-cells span{border:1px solid #e0eaf0;border-radius:7px;padding:10px 8px;background:#f4f8fa;font-size:11px;text-align:center;line-height:1.5;color:#3c5a6a}.arch-row.arch-sdk{border-color:#a8d7d0;background:#f6fcfa}.arch-row.arch-platform{border-color:#a6cbdd;background:#f2f9fc}.arch-arrow{text-align:center;color:#387e83;font-size:12px;font-weight:700;padding:8px 0}.arch-backends{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}.backend{border:1px solid #c6dce0;background:#fff;border-radius:10px;padding:15px;text-align:center}.backend-symbol{width:32px;height:32px;display:grid;place-items:center;border-radius:9px;background:#e2f5f2;color:#0b827a;font-weight:800;margin:0 auto 9px}.backend strong{display:block;font-size:12px}.backend small{display:block;color:#66808b;font-size:11px;line-height:1.5;margin-top:5px}.b-db .backend-symbol{background:#e6effa;color:#306b9c}.b-file .backend-symbol{background:#fcf0dc;color:#a2732c}
+.review-block{margin-top:23px;background:#fff;border:1px solid var(--line);border-radius:17px;box-shadow:var(--shadow);padding:32px clamp(20px,3vw,42px)}.review-block h2{font-size:24px;margin:0 0 5px}.review-block>p{margin-top:2px;color:var(--muted)}.review-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:9px}.check-row{display:flex;align-items:flex-start;gap:12px;border:1px solid #deeaed;background:#fbfdfd;padding:12px 12px;border-radius:9px;font-size:12px;line-height:1.45;cursor:pointer}.check-row:hover{border-color:#9dcac8}.check-row input{width:16px;height:16px;flex:none;accent-color:#187f79;margin:1px 0 0}.check-row b{display:inline-block;color:#0b706e;margin-right:8px;font-size:11px}.check-row small{display:block;color:#748791;font-size:11px;padding-top:4px}.check-row:has(input:checked){background:#f0faf7;border-color:#97ccc0}
+.progress-row{display:flex;justify-content:space-between;align-items:center;gap:12px;margin:12px 0 14px}.progress-wrap{width:180px;height:7px;background:#e5eff0;border-radius:20px;overflow:hidden}.progress-wrap span{display:block;height:100%;width:0;background:#187f78;transition:width .2s}.progress-row strong{font-size:12px;color:#2e6670}.review-note{border-top:1px solid var(--line);padding:13px 0;display:grid;grid-template-columns:minmax(200px,1fr) minmax(220px,1.15fr);gap:18px}.review-note label{font-size:12px;color:#25455a}.review-note label strong{display:block}.review-note label small{display:block;font-size:11px;color:#768892;line-height:1.5;margin-top:4px}.review-note textarea{width:100%;min-height:68px;border:1px solid #d3e1e6;padding:10px 12px;border-radius:8px;resize:vertical;background:#fcfefe;font-size:12px;line-height:1.5}
+.review-actions{display:flex;gap:9px;flex-wrap:wrap;margin:20px 0}.review-note h3{margin:0}.subhead{margin:25px 0 14px;font-size:17px;color:#244b5b}.explain{font-size:12px;color:var(--muted)}
+.footer{font-size:11px;color:#7a8e99;display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;padding:26px 8px 8px}.no-results{color:#9b6170;font-size:12px;display:none;padding:8px}
+@media(max-width:1150px){.shell{grid-template-columns:232px minmax(0,1fr)}.sidebar{padding-left:12px;padding-right:11px}.main{padding:24px 24px 60px}.document{padding:14px 25px 30px}}
+@media(max-width:850px){.shell{display:block}.sidebar{position:fixed;left:0;top:0;height:100vh;width:280px;transform:translateX(-110%);transition:transform .2s;box-shadow:9px 0 30px rgba(6,35,53,.15)}.sidebar.open{transform:translateX(0)}.mobilebar{display:flex;position:sticky;top:0;z-index:30;background:#fff;border-bottom:1px solid var(--line);padding:11px 17px;align-items:center;gap:12px;box-shadow:0 3px 9px rgba(20,50,70,.025)}.mobilebar button{border:1px solid #d2e2e5;border-radius:7px;background:white;padding:6px 10px;color:#174d5c}.mobilebar strong{font-size:13px}.main{padding:17px 14px 40px}.hero{padding:30px 23px}.stats{grid-template-columns:repeat(2,1fr)}.doc-section{scroll-margin-top:60px}.doc-section h2{scroll-margin-top:65px}}
+@media(max-width:600px){body{font-size:14px}.meta span{font-size:10px}.hero h1{font-size:27px}.stats{gap:9px}.stat{padding:12px}.stat strong{font-size:20px}.document{padding:11px 15px 23px}.doc-section h2{font-size:20px;align-items:flex-start}.h2-accent{height:27px}.arch-cells,.arch-backends{grid-template-columns:1fr}.architecture{padding:12px}.review-grid{grid-template-columns:1fr}.review-block{padding:20px 16px}.review-note{grid-template-columns:1fr;gap:8px}.review-note textarea{min-height:65px}.toolbar .scope{width:100%}pre{font-size:11px;padding:15px}.doc-section{padding-bottom:26px}}
+@media print{body{background:#fff;font-size:11px;line-height:1.55}.shell{display:block}.sidebar,.mobilebar,.toolbar,.review-actions,.copy-code{display:none!important}.main{padding:0}.wrap{max-width:none}.hero{background:#fff!important;color:#102738;padding:14px 0 20px;border-radius:0;box-shadow:none;border-bottom:2px solid #0b5d65}.hero p,.eyebrow{color:#345}.meta span{background:#fff;color:#333;border-color:#bbb}.hero:after{display:none}.stats{grid-template-columns:repeat(4,1fr)}.stat{padding:8px 10px}.takeaway{box-shadow:none}.document,.review-block{box-shadow:none;border:none;border-radius:0;padding:0}.doc-section{padding:15px 0 21px;break-inside:auto}.doc-section h2,.doc-section h3{break-after:avoid}.table-scroll{overflow:visible}.table-scroll table{min-width:0;font-size:9px}.table-scroll td,.table-scroll th{padding:5px 7px}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#f5f7f9!important;color:#123!important;border:1px solid #ccd}.code-frame{background:#f5f7f9;border:1px solid #ccd}.codebar{background:#e7eef2;color:#345}.review-block{break-before:page}.review-note{break-inside:avoid}.check-row{break-inside:avoid}a{color:inherit;text-decoration:underline} @page{margin:15mm}}
+</style>
+</head>
+<body>
+<a id="skip" href="#main">跳转正文</a>
+<div class="mobilebar"><button type="button" id="menuBtn" aria-label="打开章节导航">☰</button><strong>GlobalData Framework v2 · 设计评审</strong></div>
+<div class="shell">
+  <aside class="sidebar" id="sidebar">
+    <div class="brand"><div class="mark"><div class="logo">GD</div><div><strong>GlobalData Framework</strong><small>v2 · Architecture Review</small></div></div><div class="side-tag">详细设计稿 / 独立 SDK / 稳定 IPC</div></div>
+    <div class="nav-header">章节导航 · 12 SECTIONS</div>
+    <input type="search" id="navSearch" class="nav-search" placeholder="筛选章节标题…" aria-label="筛选章节">
+    <div class="no-results" id="navNone">未找到匹配章节</div>
+    <nav aria-label="文档目录"><a href="#sec-01" class="nav-link"><span>01</span>定位与状态</a><a href="#sec-02" class="nav-link"><span>02</span>总体架构与发布单元</a><a href="#sec-03" class="nav-link"><span>03</span>地址、类型与传输契约</a><a href="#sec-04" class="nav-link"><span>04</span>三种 Backend 与四种生命周期</a><a href="#sec-05" class="nav-link"><span>05</span>写入、CAS 与一致性</a><a href="#sec-06" class="nav-link"><span>06</span>DataObserver：真实数据变化</a><a href="#sec-07" class="nav-link"><span>07</span>GlobalEventBus：无载荷事件</a><a href="#sec-08" class="nav-link"><span>08</span>身份、安全与授权</a><a href="#sec-09" class="nav-link"><span>09</span>Client API 与最小使用流程</a><a href="#sec-10" class="nav-link"><span>10</span>AOSP 接入与版本兼容</a><a href="#sec-11" class="nav-link"><span>11</span>限制、故障与运维</a><a href="#sec-12" class="nav-link"><span>12</span>验证矩阵与资料</a></nav>
+    <div class="side-bottom"><a href="#review">→ 评审检查与意见导出</a><a href="#sec-12">→ 验证矩阵与资料</a><small>单文件离线 HTML。页面输入不会发送到任何服务器；请用“导出 Markdown”保存评审意见。</small></div>
+  </aside>
+  <main class="main" id="main"><div class="wrap">
+    <header class="hero">
+      <div class="eyebrow">ARCHITECTURE SPECIFICATION / ANDROID AOSP</div>
+      <h1>GlobalData Framework v2<br>最终架构设计</h1>
+      <p>系统级全局数据托管 · 三种独立存储 · 类型安全业务 SDK · 稳定 Binder IPC · 跨进程状态监听 · 无负载 EventBus</p>
+      <div class="meta"><span>版本 v2</span><span>2026-10-20</span><span>状态：当前源码对照版</span><span>目标 Android 16</span><span>可离线浏览</span></div>
+    </header>
+    <div class="stats" aria-label="文档概览">
+      <div class="stat"><strong>3</strong><span>托管存储 Backend</span></div>
+      <div class="stat"><strong>2</strong><span>独立监听/事件能力</span></div>
+      <div class="stat"><strong>12</strong><span>架构设计章节</span></div>
+      <div class="stat"><strong>12</strong><span>验证与验收项</span></div>
+    </div>
+    <div class="takeaway"><h2>架构决策摘要</h2><p>在首次 AOSP 集成后，<em>冻结最小公开 Bridge + 通用 IPC</em>，业务类 / Codec / DataKey / Repository 放到可独立发布的 SDK；GlobalDataService 只管理不透明的字节值、访问权限、版本与通知。Memory、File、SQLite 彼此独立，EventBus 不落盘。业务扩展更新 SDK 与 APK，不改 system_server；新增底层能力仍遵循平台升级边界。</p></div>
+    <div class="toolbar"><div class="scope">适用：平台架构师 · Framework/AOSP 开发 · App/SDK 开发 · 安全与测试评审</div><div class="actions"><button type="button" class="btn" id="printBtn">打印 / 保存 PDF</button><a class="btn primary" href="#review">进入评审区 ↓</a></div></div>
+    <article class="document" id="designDocument"><section class="doc-section" data-number="01"><h2 id="sec-01"><span class="h2-accent"></span>01｜定位与状态</h2>
+<p>本最终 v2 文档合并两版后续设计中仍适用的内容，并按当前仓库源码校正。它面向可修改 AOSP 的定制 Android 设备，描述三种托管存储、独立的无载荷事件通道、可随 App 更新的 SDK，以及首次系统集成边界。原始需求初稿另行保留。</p>
+<div class="table-scroll"><table><thead><tr><th>内容</th><th>当前状态</th></tr></thead><tbody>
+<tr><td>系统服务、三 Backend、ACL、DataObserver、EventHub</td><td>仓库有增量 Java/SELinux 源码；尚未在目标 AOSP/厂商源码中完成系统构建和设备验收。</td></tr>
+<tr><td>IPC、Client、Contracts、App1/App2</td><td>仓库有独立 Gradle 工程和示例调用；具体本地构建结果应以运行记录为准。</td></tr>
+<tr><td>重启、断电、跨用户、平台签名、SELinux</td><td>属于目标设备验收，不能由源码审阅或主机 JVM 测试推定通过。</td></tr>
+</tbody></table></div>
+<p>下文的“当前实现”指仓库代码具备相应逻辑，不等于已在定制系统镜像上实测。业务新增 Key、Codec、POJO 或 Topic 的升级边界成立于底层 IPC 契约保持兼容且目标设备已完成首次集成的前提下。</p>
+</section><section class="doc-section" data-number="02"><h2 id="sec-02"><span class="h2-accent"></span>02｜总体架构与发布单元</h2>
+<div class="architecture">
+<div class="arch-row"><div class="arch-head"><span class="arch-num">01</span><strong>Apps：App1、App2 或其他获授权调用方</strong></div><div class="arch-cells"><span>业务操作与界面</span><span>业务模型的使用</span><span>订阅生命周期</span></div></div>
+<div class="arch-arrow">↓ 随 APK 或 Maven 依赖升级</div>
+<div class="arch-row arch-sdk"><div class="arch-head"><span class="arch-num">02</span><strong>device-contracts → client → ipc</strong></div><div class="arch-cells"><span>POJO / Codec / Key / Topic</span><span>Manager / Store / EventBus</span><span>Wire / 三个 AIDL 接口</span></div></div>
+<div class="arch-arrow">↓ 公开 Bridge + Binder</div>
+<div class="arch-row arch-platform"><div class="arch-head"><span class="arch-num">03</span><strong>system_server：GlobalDataSystemService</strong></div><div class="arch-cells"><span>AccessController</span><span>三 Backend + DataObservers</span><span>EventHub</span></div></div></div>
+<p>通用 Client 不包含业务 POJO；示例 <code>device-contracts</code> 保存 <code>DeviceConfig</code>、<code>DeviceDataKeys</code>、<code>DeviceTopics</code> 和 Repository。<code>bridge-stubs</code> 只参与编译，不作为运行时依赖装入 APK。系统服务只处理地址、schema 元信息、字节载荷、权限和版本，不加载业务类。</p>
+<h3>改动对交付物的影响</h3>
+<div class="table-scroll"><table><thead><tr><th>改动</th><th>需要更新</th><th>边界</th></tr></thead><tbody>
+<tr><td>新增业务对象、Codec、Key 或 Topic</td><td>Contracts AAR 与使用它的 APK</td><td>保持现有协议字段与服务端能力时，不因业务模型更新系统镜像。</td></tr>
+<tr><td>Client 便利 API 改动</td><td>Client AAR 与使用它的 APK</td><td>仍需兼容设备上的 IPC 能力。</td></tr>
+<tr><td>AIDL、Wire 语义、Bridge 或系统服务改动</td><td>客户端及 AOSP 补丁；重新构建并部署目标镜像</td><td>两份 AIDL/Wire 副本必须一致并协商协议版本。</td></tr>
+</tbody></table></div>
+</section><section class="doc-section" data-number="03"><h2 id="sec-03"><span class="h2-accent"></span>03｜地址、类型与传输契约</h2>
+<p><code>DataKey&lt;T&gt;</code> 固定 Store、Scope、owner 包、namespace、key 与 <code>ValueCodec&lt;T&gt;</code>。服务端还从真实 Binder UID 推导 User ID。Store 参与定位，同名 Key 在 Memory、File、Database 中是三份独立数据。<code>EventTopic</code> 只有 Scope、owner 和完整 topic，不属于任何 Store。</p>
+<p>Codec 在 App 侧将值编码为 <code>schemaId</code>、<code>schemaVersion</code>、<code>encoding</code> 和 <code>byte[]</code>；服务端只保存不透明字节。单值 payload 上限为 64 KiB。读取时 Client 先匹配 schema ID，再按存储版本解码。原 String 集合使用 JSON/UTF-8，新增数值/布尔集合使用各自版本 1 的长度前缀二进制格式。</p>
+<p>当前协议版本为 <strong>1.1</strong>。<code>IGlobalDataTransport</code>、<code>IDataObserver</code> 与 <code>IEventListener</code> 组成 Binder 协议；Client 初次连接时检查 major/minor、最大载荷和所需功能位。系统侧和 SDK 各有一份 AIDL 与 <code>Wire</code>，可用 <code>verification/verify.ps1</code> 比较声明和公开常量。</p>
+</section><section class="doc-section" data-number="04"><h2 id="sec-04"><span class="h2-accent"></span>04｜三种 Backend 与四种生命周期</h2>
+<p>三种 Backend 使用同一类地址与读写接口，但数据互不自动镜像、迁移或回写。以下第四行是独立事件通道，<strong>不是第四种存储</strong>。</p>
+<div class="table-scroll"><table><thead><tr><th>能力</th><th>实现与位置</th><th>生命周期及承诺</th></tr></thead><tbody>
+<tr><td>Memory</td><td><code>system_server</code> 内按 namespace 保存字节快照与高水位；每 owner 当前 payload 上限 4 MiB。</td><td>App 退出后仍可访问；服务进程或设备重启后丢失。</td></tr>
+<tr><td>File</td><td>每 Scope/User/owner/namespace 一个 SHA-256 命名的 <code>.gdf</code>；<code>AtomicFile</code>、CRC32、缓存；文件上限 1 MiB。</td><td>代码在文件提交后才报告成功；跨重启与断电恢复须在设备上验证。</td></tr>
+<tr><td>Database</td><td>每 Scope/User 一个 <code>globaldata-v1.db</code>；SQLite <code>kv</code>/<code>nsrev</code>、WAL、<code>synchronous=FULL</code>；每 owner 当前 payload 上限 16 MiB。</td><td>代码在事务提交后才报告成功；设备持久化与故障恢复须验收。</td></tr>
+<tr><td>EventHub</td><td>内存中的在线 topic 订阅与待发送任务；无业务 payload。</td><td>不落盘、不补发、不主动唤醒离线 App；服务死亡期间事件丢失。</td></tr>
+</tbody></table></div>
+<p>File/Database 根据 Scope 写入系统 DE 或用户 CE 目录。<code>DEVICE_DE</code> 归一到 User 0；<code>USER_DE</code>、<code>USER_CE</code> 按调用者 User 隔离。CE 用户未解锁时返回 <code>LOCKED</code>。</p>
+</section><section class="doc-section" data-number="05"><h2 id="sec-05"><span class="h2-accent"></span>05｜写入、CAS 与一致性</h2>
+<p>服务端存储队列串行执行写入，容量为 128；队列满返回 <code>BUSY</code>。<code>put</code> 是单 Key 无条件 upsert；<code>putIfAbsent</code> 只检查当前是否不存在；<code>putIfRevision</code> 用读取到的快照同时比较 revision 和服务 epoch。<code>update</code> 是 Client 的“读→计算→CAS”便利流程，冲突时最多重试 3 次，更新函数可能执行多次。</p>
+<p>每个 Backend 为 namespace 保存单调递增的 revision 高水位。存在的 Key 返回自身 revision，不存在的 Key 返回 namespace 高水位。成功删除推进高水位；删除前的旧快照不能通过 CAS 复活该值。服务重启后 epoch 改变，也会拒绝旧快照。不同 Key 的提交可能推进同一 namespace 高水位，故不存在 Key 的 CAS 可能保守冲突。</p>
+<p>File 的 <code>AtomicFile</code> 完成替换、Database 的 SQLite 事务完成后，服务才返回成功并排入数据通知。失败、权限拒绝及 CAS 冲突不应被当作成功通知。当前没有跨 Key、跨 Store 的原子事务接口；事件到达也不能代替写入结果确认。</p>
+</section><section class="doc-section" data-number="06"><h2 id="sec-06"><span class="h2-accent"></span>06｜DataObserver：真实数据变化</h2>
+<p>DataObserver 订阅完整数据 Key，只有对应 Store 的真实提交才产生变化提示。提示包含地址、操作、revision 与 epoch，不直接承载业务对象。Client 的 <code>observeAndRead</code> 先订阅再读取当前快照；以后每次提示都重新读取权威当前值。因此连续提交可能合并为最终状态，回调次数不是写入次数。</p>
+<p>服务端每 UID 最多 64 个数据订阅，通知队列容量 256；队列溢出时请求重同步。发送前再次检查 <code>OBSERVE</code> 权限，Binder 死亡时移除订阅。Client 检测到服务死亡后尝试重订阅并重读当前值；页面关闭时仍须关闭 <code>Subscription</code> 和 manager。需要重读值的订阅者应同时具备 <code>OBSERVE | READ</code>。</p>
+</section><section class="doc-section" data-number="07"><h2 id="sec-07"><span class="h2-accent"></span>07｜GlobalEventBus：无载荷事件</h2>
+<p>这是从早期 v2 设计延续的独立通道：App 主动 <code>post(topic)</code>，服务校验 <code>PUBLISH</code> 权限和速率，再向当时在线、仍具 <code>SUBSCRIBE</code> 权限的订阅者转发。事件不创建 Memory/File/Database Key，不包含业务 payload，也不补发离线期间的消息。成功 Future 只表示入队成功，不保证每个订阅者实际收到。</p>
+<h3>双向示例流程</h3>
+<ol><li>App1 使用 <code>DeviceTopics.app1ToApp2ConfigRefreshedEvent(false)</code> 授予 App2 <code>SUBSCRIBE</code>；App2 先订阅，App1 再发布“配置已刷新”。</li>
+<li>App1 使用 <code>DeviceTopics.app2ToApp1ConfigRefreshRequestEvent(false)</code> 授予 App2 <code>PUBLISH</code> 并先订阅；App2 再发布“请求刷新配置”。</li>
+<li>收到事件后若需要配置内容，接收方另用 <code>DataKey</code> 读取当前存储值。数据授权与事件授权分别管理。</li></ol>
+<p>服务端每 UID 每秒最多接受 20 次发布；事件队列容量 256，每 UID 最多 64 个事件订阅。队列满返回 <code>BUSY</code>。服务重启后 Client 重订阅，但不会重放停机期间的事件。</p>
+</section><section class="doc-section" data-number="08"><h2 id="sec-08"><span class="h2-accent"></span>08｜身份、安全与授权</h2>
+<p>安全边界在系统服务。它从 Binder 获取真实 calling UID/User，核对 owner 包、当前签名、Scope 与资源授权；客户端传来的 owner 仅是地址，不能伪造身份。普通数据 namespace 只能是 <code>share.&lt;ownerPackage&gt;</code> 或 <code>app.&lt;ownerPackage&gt;</code>；普通事件 topic 以 <code>events.&lt;ownerPackage&gt;/</code> 开头。<code>sys.*</code> 与 <code>DEVICE_DE</code> 要求系统 UID 或平台签名身份。</p>
+<p>数据授权粒度为 Scope/User/owner/namespace，覆盖该 namespace 的三个 Store；事件授权粒度为完整 topic。READ、WRITE、DELETE、OBSERVE 与 PUBLISH、SUBSCRIBE 分开检查。owner 身份和目标包授权关联签名摘要，保存于 DE 下的 <code>acl-v1.bin</code>。目标包须已安装才能授权；重装后若签名变化，不继承旧授权。ACL 文件损坏时实现拒绝继续改写。</p>
+<p>普通 App 不直接读取系统存储文件。<code>BuildConfig.SYSTEM_SCOPE</code> 仅改变示例地址，不授予平台身份；平台示例必须用目标系统平台密钥签名并在设备上验证。</p>
+</section><section class="doc-section" data-number="09"><h2 id="sec-09"><span class="h2-accent"></span>09｜Client API 与最小使用流程</h2>
+<p>App 调用 <code>GlobalDataSdk.connect(context)</code> 获得 manager；Binder 在首次操作时连接。异步 API 返回 <code>CompletableFuture</code>，同一 manager 的 I/O 任务串行执行。<code>readBlocking</code> 和 <code>putBlocking</code> 拒绝主线程；Future 回调不保证在 UI 线程。组件结束时关闭订阅和 manager。</p>
+<pre><code class="language-java">DataKey&lt;Integer&gt; key = DeviceDataKeys.memoryIntOperationCount(false);
+GlobalDataManager manager = GlobalDataSdk.connect(context);
+manager.grantData(key, DeviceDataKeys.APP2_PACKAGE, Wire.READ | Wire.OBSERVE)
+       .thenCompose(ignored -&gt; manager.put(key, 9999));
+// App2：授权完成后订阅并读取；收到变化时 SDK 会重读当前快照。
+manager.observeAndRead(key, callbackExecutor, listener);</code></pre>
+<p>此例选 <code>USER_CE</code> 与 App1 拥有的共享 namespace。先安装 App2，再由 App1 授权，两个 App 需处于同一已解锁用户且设备已集成服务。完整错误处理和页面步骤见客户端调用指南与演示目录。</p>
+</section><section class="doc-section" data-number="10"><h2 id="sec-10"><span class="h2-accent"></span>10｜AOSP 接入与版本兼容</h2>
+<p>仓库的 <code>aosp-patch/</code> 是按 Android 16 基线编写的增量源码，不是完整系统树。目标分支需集成公开 <code>GlobalDataBridge.getTransportBinder()</code>、三个 AIDL、系统服务启动与 SELinux 规则；普通 App 不能靠反射隐藏 <code>ServiceManager</code> 接入。<code>bridge-stubs</code> 只供本地编译，平台公开 API 应与真实 OEM SDK 桩核对。</p>
+<p>当前 Client 要求协议 major=1、minor 至少为 1，并检查所需功能位。业务 schema 版本与 IPC 版本分别演进：旧值能否被新旧 App 共同读取由共享 Codec 契约决定，不由系统服务理解业务字段。业务变更只更新 AAR/APK 的前提是现有传输字段及系统能力足够；底层协议改动需同步系统侧并重建镜像。</p>
+<p>工程配置为 API 36、Java 17、AGP 8.6.1；SDK Wrapper 为 Gradle 8.7，App1/App2 Wrapper 为 Gradle 8.13。AOSP 编译、刷机与验收命令见接入指南。</p>
+</section><section class="doc-section" data-number="11"><h2 id="sec-11"><span class="h2-accent"></span>11｜限制、故障与运维</h2>
+<p>服务端单值上限 64 KiB；Memory 当前 payload 每 owner 4 MiB，File 每 namespace 文件 1 MiB，Database 当前 payload 每 owner 16 MiB。存储任务队列容量 128，数据通知和事件队列各为 256。Client 异步 API 适合界面调用；连续异步操作应组合 Future，避免在同一 manager 的回调中阻塞等待新任务。</p>
+<p>不存在、冲突、权限拒绝、CE 锁定、配额、协议不支持、存储不可用及队列忙等状态由 <code>Wire</code> 定义，Client 通过 <code>GlobalDataException.status</code> 暴露。订阅 AIDL 失败仅返回 <code>-1</code>，Client 目前统一映射为 <code>PERMISSION_DENIED</code>；排障时不能仅凭该状态区分权限与订阅数量上限。</p>
+<p>当前仓库没有目标设备压测或生产监控数据，文中限额是实现常量而非吞吐或时延 SLA。上线前需测写入延迟、队列积压、存储空间不足、数据库错误、回调风暴与进程恢复。</p>
+</section><section class="doc-section" data-number="12"><h2 id="sec-12"><span class="h2-accent"></span>12｜验证矩阵与资料</h2>
+<div class="table-scroll"><table><thead><tr><th>验证层</th><th>应执行的检查</th><th>当前可得结论</th></tr></thead><tbody>
+<tr><td>源码与主机</td><td>IPC 副本/常量、MemoryBackend CAS/隔离、Codec 单元测试、SDK/App 构建</td><td>2026-10-20 使用 JDK 17：验证脚本、SDK Debug AAR 与单元测试、两个 App 的普通 Debug/平台 Release APK 构建通过。AGP/D8 提示 API 36 超出当前版本的已测试范围。</td></tr>
+<tr><td>目标 AOSP</td><td>Soong/API/SELinux 构建、服务注册、真实公开 Bridge</td><td>当前仓库无完整目标 checkout，不能声称已通过。</td></tr>
+<tr><td>目标设备</td><td>跨 App ACL、CE/DE、多用户、平台签名、File/DB 重启和断电、事件不补发</td><td>需刷入目标镜像后按设备验收清单执行。</td></tr>
+</tbody></table></div>
+<p>阅读当前实现请从 <a href="架构设计说明.md">架构设计说明.md</a> 开始；调用与系统接入分别见 <a href="globaldata-sdk/客户端使用指南.md">客户端使用指南.md</a> 和 <a href="aosp-patch/AOSP集成与验证指南.md">AOSP集成与验证指南.md</a>。外部参考：<a href="https://source.android.com/docs/core/architecture/aidl" target="_blank" rel="noopener noreferrer">AOSP AIDL</a>、<a href="https://source.android.com/docs/security/features/encryption/file-based" target="_blank" rel="noopener noreferrer">Android DE/CE</a>、<a href="https://developer.android.com/reference/android/util/AtomicFile" target="_blank" rel="noopener noreferrer">AtomicFile</a>、<a href="https://www.sqlite.org/wal.html" target="_blank" rel="noopener noreferrer">SQLite WAL</a>。</p>
+</section></article>
+    <section class="review-block" id="review" aria-labelledby="reviewTitle">
+<h2 id="reviewTitle">验证与评审记录</h2>
+<p>以下是待执行的检查清单，勾选状态只保存在当前页面，默认不表示已通过。请记录实际设备、构建与日志，并导出 Markdown 留档。</p>
+<div class="progress-row"><strong id="progressText">0 / 12 已确认</strong><div class="progress-wrap" aria-hidden="true"><span id="progressFill"></span></div></div>
+<div class="review-grid" id="reviewChecks"><label class="check-row"><input type="checkbox" data-case="L01"><span><b>L01</b>IPC 声明与 Wire 常量<small>运行 verification/verify.ps1；比较客户端与系统侧副本</small></span></label><label class="check-row"><input type="checkbox" data-case="L02"><span><b>L02</b>MemoryBackend CAS 与隔离<small>运行主机 JVM 验证；记录真实输出</small></span></label><label class="check-row"><input type="checkbox" data-case="L03"><span><b>L03</b>Codec 单元测试与 SDK 构建<small>执行 SDK Gradle 任务；记录失败环境</small></span></label><label class="check-row"><input type="checkbox" data-case="L04"><span><b>L04</b>App1/App2 APK 构建<small>分别构建普通变体；不把构建视为设备通过</small></span></label><label class="check-row"><input type="checkbox" data-case="D01"><span><b>D01</b>目标 AOSP 编译与服务注册<small>核查 Bridge、AIDL、SystemServer 与 SELinux</small></span></label><label class="check-row"><input type="checkbox" data-case="D02"><span><b>D02</b>普通 App 授权、撤销与签名变化<small>以真实 UID、包与签名验证访问</small></span></label><label class="check-row"><input type="checkbox" data-case="D03"><span><b>D03</b>CE 锁定及跨用户隔离<small>解锁前 LOCKED；不同 User 不默认共享</small></span></label><label class="check-row"><input type="checkbox" data-case="D04"><span><b>D04</b>三 Store 同名 Key 与 CAS<small>隔离、旧 revision 冲突、删除后旧快照失效</small></span></label><label class="check-row"><input type="checkbox" data-case="D05"><span><b>D05</b>File/Database 重启与故障恢复<small>检查已确认写入的值和失败时无假通知</small></span></label><label class="check-row"><input type="checkbox" data-case="D06"><span><b>D06</b>数据订阅与服务重连<small>先订阅后读、通知溢出重同步、重连重读</small></span></label><label class="check-row"><input type="checkbox" data-case="D07"><span><b>D07</b>双向 EventBus<small>在线授权转发、无数据 Key、离线无补发</small></span></label><label class="check-row"><input type="checkbox" data-case="D08"><span><b>D08</b>平台签名 DEVICE_DE<small>用目标平台密钥验证；普通调试签名不能代替</small></span></label></div>
+<h3 class="subhead">执行记录</h3><div id="reviewNotes"><div class="review-note"><label for="note-N01"><strong>N01 · 目标 AOSP 分支</strong><small>记录产品名、公开 API 差异、Soong 与 SELinux 结果</small></label><textarea id="note-N01" data-decision="N01" placeholder="填写结果、负责人、日志位置……"></textarea></div><div class="review-note"><label for="note-N02"><strong>N02 · 设备与签名</strong><small>记录设备构建号、平台签名方式及多用户测试条件</small></label><textarea id="note-N02" data-decision="N02" placeholder="填写结果、负责人、日志位置……"></textarea></div><div class="review-note"><label for="note-N03"><strong>N03 · 故障与性能</strong><small>记录断电、存储故障、队列压力与恢复观察</small></label><textarea id="note-N03" data-decision="N03" placeholder="填写结果、负责人、日志位置……"></textarea></div></div>
+<div class="review-actions"><button class="btn primary" id="exportReview" type="button">导出评审记录 .md</button><button class="btn" id="resetReview" type="button">清空评审项</button><button class="btn" id="printReview" type="button">打印全文</button></div>
+<p class="explain">离线单文件文档；页面内容不会自动同步。关闭前请导出评审记录。</p>
+</section>
+    <footer class="footer"><span>Android GlobalData Framework v2 · Final Architecture · 当前源码对照版</span><span>文档正文离线可读 · 外部官方资料链接需联网</span></footer>
+  </div></main>
+</div>
+<script>
+(function(){
+  'use strict';
+  const $=(s,r=document)=>r.querySelector(s), $$=(s,r=document)=>Array.from(r.querySelectorAll(s));
+  const sidebar=$('#sidebar');
+  const menu=$('#menuBtn');
+  if(menu) menu.addEventListener('click',()=>{sidebar.classList.toggle('open');menu.setAttribute('aria-expanded',String(sidebar.classList.contains('open')))});
+  $$('.nav-link').forEach(a=>a.addEventListener('click',()=>{sidebar.classList.remove('open');if(menu)menu.setAttribute('aria-expanded','false')}));
+  $('#navSearch').addEventListener('input',function(){const v=this.value.trim().toLowerCase();let shown=0;$$('.nav-link').forEach(a=>{const match=a.textContent.toLowerCase().includes(v);a.hidden=!match;if(match)shown++});$('#navNone').style.display=shown?'none':'block'});
+  if('IntersectionObserver' in window){
+    const observer=new IntersectionObserver(entries=>{entries.forEach(e=>{if(e.isIntersecting){$$('.nav-link').forEach(a=>a.classList.toggle('active',a.hash==='#'+e.target.id))}})},{rootMargin:'-7% 0px -78% 0px',threshold:0});
+    $$('h2[id^="sec-"]').forEach(h=>observer.observe(h));
+  }
+  $$('#designDocument pre').forEach(pre=>{
+    const frame=document.createElement('div');frame.className='code-frame';const bar=document.createElement('div');bar.className='codebar';
+    const label=document.createElement('span');const c=$('code',pre);const cls=c?.className||'';label.textContent=(cls.match(/language-([\w-]+)/)||[])[1]?.toUpperCase()||'CODE';
+    const btn=document.createElement('button');btn.type='button';btn.className='copy-code';btn.textContent='复制代码';
+    btn.addEventListener('click',async()=>{
+      const value=pre.textContent;
+      try{if(!navigator.clipboard?.writeText)throw Error('clipboard unavailable');await navigator.clipboard.writeText(value);btn.textContent='已复制'}catch(err){
+        const ta=document.createElement('textarea');ta.value=value;ta.style.position='fixed';ta.style.left='-10000px';document.body.appendChild(ta);ta.select();
+        try{document.execCommand('copy');btn.textContent='已复制'}catch(e){btn.textContent='请手动复制'}finally{ta.remove()}
+      }
+      setTimeout(()=>btn.textContent='复制代码',1700);
+    });
+    bar.append(label,btn);pre.parentNode.insertBefore(frame,pre);frame.append(bar,pre);
+  });
+  const updateProgress=()=>{const all=$$('#reviewChecks input[type="checkbox"]');const done=all.filter(x=>x.checked).length;$('#progressText').textContent=done+' / '+all.length+' 已确认';$('#progressFill').style.width=(done/all.length*100)+'%'};
+  $$('#reviewChecks input').forEach(x=>x.addEventListener('change',updateProgress));updateProgress();
+  $('#printBtn').addEventListener('click',()=>window.print());$('#printReview').addEventListener('click',()=>window.print());
+  $('#resetReview').addEventListener('click',()=>{if(!confirm('确定清空所有评审勾选与文字意见？'))return;$$('#reviewChecks input').forEach(x=>x.checked=false);$$('#reviewNotes textarea').forEach(x=>x.value='');updateProgress()});
+  $('#exportReview').addEventListener('click',()=>{
+    const checks=$$('#reviewChecks input'),checked=checks.filter(x=>x.checked).length;
+    const lines=['# Android GlobalData Framework v2 评审意见','','文档版本：2','导出时间：'+new Date().toLocaleString(),'验收进度：'+checked+'/'+checks.length,'','## 验收项'];
+    checks.forEach(el=>{const p=el.closest('label'),title=$('span',p).textContent.replace(/\s+/g,' ').trim();lines.push('- ['+(el.checked?'x':' ')+'] '+title)});
+    lines.push('','## 执行记录');
+    $$('#reviewNotes .review-note').forEach(div=>{const title=$('strong',div).textContent;const context=$('small',div).textContent;const val=$('textarea',div).value.trim()||'（未填写）';lines.push('','### '+title,context,'',val)});
+    lines.push('','---','该记录由 GlobalData v2 离线架构评审页面导出，使用前请确认内容。');
+    const blob=new Blob(['\ufeff'+lines.join('\n')],{type:'text/markdown;charset=utf-8'});const url=URL.createObjectURL(blob);
+    const a=document.createElement('a');a.href=url;a.download='GlobalData_v2_Review_Notes.md';document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1500);
+  });
+})();
+</script>
+</body></html>
