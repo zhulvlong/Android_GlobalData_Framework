@@ -147,7 +147,7 @@ final class DataObservers {
         if (entries.get(entry.id) != entry) return false;
         int status;
         try {
-            status = acl.check(entry.uid, AccessController.data(entry.key), Wire.OBSERVE);
+            status = acl.authorizeData(entry.uid, entry.key, Wire.OBSERVE, false);
         } catch (RuntimeException e) {
             // 身份服务暂时不可用时跳过本次通知，保留订阅供下一次重新鉴权。
             TLog.w(TAG, "delivery authorization failed id=" + entry.id);

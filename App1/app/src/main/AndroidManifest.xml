@@ -35,6 +35,10 @@
         <activity android:name=".DatabaseBytesDemoActivity" android:exported="false" />
         <activity android:name=".EventSendConfigRefreshedActivity" android:exported="false" />
         <activity android:name=".EventReceiveRefreshRequestActivity" android:exported="false" />
+        <activity android:name=".DeviceDataAllDemoActivity" android:exported="false" />
+        <activity android:name=".UserDataAllDemoActivity" android:exported="false" />
+        <activity android:name=".UserDataPreinstalledAppsDemoActivity" android:exported="false" />
+        <activity android:name=".UserDataSameSignatureAppsDemoActivity" android:exported="false" />
         <activity android:name=".MainActivity" android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />

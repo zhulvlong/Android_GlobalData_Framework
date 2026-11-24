@@ -439,6 +439,61 @@ public final class GlobalDataManager implements AutoCloseable {
         Bundle b = key.wire(); b.putInt(Wire.RESOURCE, Wire.RESOURCE_DATA);
         return acl(b, targetPackage, rights, false);
     }
+    private CompletableFuture<Void> changeDataAudience(
+            DataKey<?> key, int audience, int rights, boolean grant) {
+        return CompletableFuture.runAsync(() -> {
+            Bundle address = key.wire();
+            try {
+                IGlobalDataTransport service = transport();
+                check(grant ? service.grantDataAudience(address, audience, rights)
+                        : service.revokeDataAudience(address, audience, rights));
+            } catch (RemoteException e) {
+                onDeath();
+                throw failed(e);
+            }
+        }, io);
+    }
+
+    /** 将一个 DEVICE_DE share Key 授权给所有 Android 用户下的已安装 App。Future 在规则持久化后完成。 */
+    public CompletableFuture<Void> grantDeviceDataAll(DataKey<?> key, int rights) {
+        return changeDataAudience(key, Wire.AUDIENCE_DEVICE_ALL, rights, true);
+    }
+
+    /** 仅移除此 Key 在 {@link #grantDeviceDataAll} 中声明的指定权限位。 */
+    public CompletableFuture<Void> revokeDeviceDataAll(DataKey<?> key, int rights) {
+        return changeDataAudience(key, Wire.AUDIENCE_DEVICE_ALL, rights, false);
+    }
+
+    /** 将一个 USER_DE 或 USER_CE Key 授权给本用户所有已安装 App。Future 在规则持久化后完成。 */
+    public CompletableFuture<Void> grantUserDataAll(DataKey<?> key, int rights) {
+        return changeDataAudience(key, Wire.AUDIENCE_USER_ALL, rights, true);
+    }
+
+    /** 仅移除此 Key 在 {@link #grantUserDataAll} 中声明的指定权限位。 */
+    public CompletableFuture<Void> revokeUserDataAll(DataKey<?> key, int rights) {
+        return changeDataAudience(key, Wire.AUDIENCE_USER_ALL, rights, false);
+    }
+
+    /** 将一个 USER_DE 或 USER_CE Key 授权给本用户的 ROM 预装 App。Future 在规则持久化后完成。 */
+    public CompletableFuture<Void> grantUserDataPreinstalledApps(DataKey<?> key, int rights) {
+        return changeDataAudience(key, Wire.AUDIENCE_USER_PREINSTALLED, rights, true);
+    }
+
+    /** 仅移除此 Key 在 {@link #grantUserDataPreinstalledApps} 中声明的指定权限位。 */
+    public CompletableFuture<Void> revokeUserDataPreinstalledApps(DataKey<?> key, int rights) {
+        return changeDataAudience(key, Wire.AUDIENCE_USER_PREINSTALLED, rights, false);
+    }
+
+    /** 将一个 USER_DE 或 USER_CE Key 授权给本用户与 owner 当前签名一致的 App。Future 在规则持久化后完成。 */
+    public CompletableFuture<Void> grantUserDataSameSignatureApps(DataKey<?> key, int rights) {
+        return changeDataAudience(key, Wire.AUDIENCE_USER_SAME_SIGNATURE, rights, true);
+    }
+
+    /** 仅移除此 Key 在 {@link #grantUserDataSameSignatureApps} 中声明的指定权限位。 */
+    public CompletableFuture<Void> revokeUserDataSameSignatureApps(DataKey<?> key, int rights) {
+        return changeDataAudience(key, Wire.AUDIENCE_USER_SAME_SIGNATURE, rights, false);
+    }
+
     /**
      * 针对完整 topic 授予发布和/或订阅权限，独立于数据 namespace 的授权。
      * @param topic 事件地址

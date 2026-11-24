@@ -26,6 +26,33 @@ public final class DeviceDataKeys {
     /** 平台受信任调用方专用的 sys.* 命名空间。 */
     public static final String SYSTEM_NAMESPACE = "sys.device";
 
+    // 与旧定向授权案例隔离，避免已授予的 namespace 权限掩盖单 Key 撤权结果。
+    private static final String USER_AUDIENCE_NAMESPACE = "app." + APP1_PACKAGE;
+
+    /** 两端构建变体可能不同，设备级公开案例必须固定到同一个 DEVICE_DE share 地址。 */
+    public static DataKey<String> fileStringDeviceAudienceDemo() {
+        return DataKey.of(Wire.FILE, Wire.DEVICE_DE, APP1_PACKAGE, SHARED_NAMESPACE,
+                "demo_audience_device_all", Codecs.STRING);
+    }
+
+    /** 本用户所有 App 读取或监听的内存示例。 */
+    public static DataKey<String> memoryStringUserAllAudienceDemo() {
+        return DataKey.of(Wire.MEMORY, Wire.USER_CE, APP1_PACKAGE, USER_AUDIENCE_NAMESPACE,
+                "demo_audience_user_all", Codecs.STRING);
+    }
+
+    /** 本用户预装 App 读取或监听的数据库示例。 */
+    public static DataKey<String> databaseStringUserPreinstalledAudienceDemo() {
+        return DataKey.of(Wire.DATABASE, Wire.USER_CE, APP1_PACKAGE, USER_AUDIENCE_NAMESPACE,
+                "demo_audience_user_preinstalled", Codecs.STRING);
+    }
+
+    /** 本用户同签名 App 读取或监听的文件示例。 */
+    public static DataKey<String> fileStringUserSameSignatureAudienceDemo() {
+        return DataKey.of(Wire.FILE, Wire.USER_CE, APP1_PACKAGE, USER_AUDIENCE_NAMESPACE,
+                "demo_audience_user_same_signature", Codecs.STRING);
+    }
+
     /** 内存中的操作计数；原 9999 演示使用此地址，服务重启后值消失。 */
     public static DataKey<Integer> memoryIntOperationCount(boolean system) {
         return DataKey.of(Wire.MEMORY, system ? Wire.DEVICE_DE : Wire.USER_CE,

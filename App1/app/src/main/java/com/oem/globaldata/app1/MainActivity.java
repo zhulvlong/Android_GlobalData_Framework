@@ -21,6 +21,10 @@ public final class MainActivity extends Activity {
         binding.mode.setText("当前模式：" + (BuildConfig.SYSTEM_SCOPE
                 ? "平台签名 / DEVICE_DE / sys.device"
                 : "普通 App / USER_CE / App1 共享 namespace"));
+        binding.deviceDataAllButton.setOnClickListener(v -> open(DeviceDataAllDemoActivity.class));
+        binding.userDataAllButton.setOnClickListener(v -> open(UserDataAllDemoActivity.class));
+        binding.userDataPreinstalledAppsButton.setOnClickListener(v -> open(UserDataPreinstalledAppsDemoActivity.class));
+        binding.userDataSameSignatureAppsButton.setOnClickListener(v -> open(UserDataSameSignatureAppsDemoActivity.class));
         binding.memoryIntButton.setOnClickListener(v -> open(MemoryIntDemoActivity.class));
         binding.memoryLongButton.setOnClickListener(v -> open(MemoryLongDemoActivity.class));
         binding.memoryFloatButton.setOnClickListener(v -> open(MemoryFloatDemoActivity.class));

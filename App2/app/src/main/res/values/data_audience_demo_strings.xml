@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="audience_device_all_title">设备级跨用户 · grantDeviceDataAll</string>
+    <string name="audience_device_all_address">DEVICE_DE / FILE\n%1$s / %2$s</string>
+    <string name="audience_device_all_requirements">App1 需使用目标 ROM 平台签名。App2 可普通安装，也可在其他 Android 用户中运行。</string>
+    <string name="audience_user_all_title">本用户所有 App · grantUserDataAll</string>
+    <string name="audience_user_all_address">USER_CE / MEMORY\n%1$s / %2$s</string>
+    <string name="audience_user_all_requirements">App1 与 App2 在同一个已解锁的 Android 用户下运行。可在授权后再安装 App2。</string>
+    <string name="audience_user_preinstalled_title">本用户 ROM 预装 App · grantUserDataPreinstalledApps</string>
+    <string name="audience_user_preinstalled_address">USER_CE / DATABASE\n%1$s / %2$s</string>
+    <string name="audience_user_preinstalled_requirements">App2 必须是该用户的 ROM 预装应用或其正常升级版。普通安装的 App2 应被拒绝。</string>
+    <string name="audience_user_same_signature_title">本用户同签名 App · grantUserDataSameSignatureApps</string>
+    <string name="audience_user_same_signature_address">USER_CE / FILE\n%1$s / %2$s</string>
+    <string name="audience_user_same_signature_requirements">App1 与 App2 必须在同一个已解锁的 Android 用户下，且使用相同的当前签名证书。</string>
+</resources>

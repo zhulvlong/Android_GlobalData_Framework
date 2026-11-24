@@ -32,7 +32,7 @@ public final class DataKey<T> {
      * @param store Wire.MEMORY、FILE 或 DATABASE
      * @param scope Wire.DEVICE_DE、USER_DE 或 USER_CE
      * @param ownerPackage 资源管理者的包名；服务端会核对真实调用身份
-     * @param namespace 数据授权分组，同组授权覆盖三个 Store 的 Key
+     * @param namespace 定向授权按此分组，范围授权还区分 Store 和 Key
      * @param key 分组内的单条记录名
      * @param codec T 的客户端编码约定
      * @return 不可变的数据地址

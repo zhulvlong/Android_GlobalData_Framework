@@ -7,7 +7,7 @@ import java.util.regex.Pattern;
 
 /**
  * 单条数据的完整服务端地址。store 选择后端，scope/userId 选择 DE/CE 用户目录，
- * owner/namespace/key 定位业务记录；ACL 授权粒度是 namespace 而非单个 Key。
+ * owner/namespace/key 定位业务记录；定向授权按 namespace，范围授权按完整 Key。
  * 服务端统一构造地址，避免各后端各自解释用户、owner 或路径规则而产生越权差异。
  */
 final class StoreAddress {

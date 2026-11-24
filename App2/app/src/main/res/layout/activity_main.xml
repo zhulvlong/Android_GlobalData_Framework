@@ -20,8 +20,38 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:id="@+id/instructions"
-                android:text="先在 App1 对应页授权并写入，再回到此处读取或监听。"
+                android:text="在 App1 启用对应单 Key 授权并写入后，按该案例的安装条件读取或监听。"
                 android:textSize="17sp" />
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:text="单 Key 范围授权 · 读取 / 监听"
+                android:textSize="17sp" />
+            <Button
+                android:id="@+id/deviceDataAllButton"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="grantDeviceDataAll · 设备级跨用户"
+                android:textAllCaps="false" />
+            <Button
+                android:id="@+id/userDataAllButton"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="grantUserDataAll · 本用户所有 App"
+                android:textAllCaps="false" />
+            <Button
+                android:id="@+id/userDataPreinstalledAppsButton"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="grantUserDataPreinstalledApps · 本用户预装 App"
+                android:textAllCaps="false" />
+            <Button
+                android:id="@+id/userDataSameSignatureAppsButton"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="grantUserDataSameSignatureApps · 本用户同签名 App"
+                android:textAllCaps="false" />
             <TextView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"

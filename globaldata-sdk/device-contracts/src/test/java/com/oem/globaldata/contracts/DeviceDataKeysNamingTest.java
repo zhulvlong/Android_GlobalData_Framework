@@ -17,36 +17,49 @@ import org.junit.Test;
 /** 防止新业务地址再次使用无法辨认 Store 或数据格式的方法名。 */
 public final class DeviceDataKeysNamingTest {
     @Test public void publicFactoriesNameStoreAndValueFormatWithoutChangingAddresses() throws Exception {
-        int count = 0;
+        int variantCount = 0;
+        int fixedCount = 0;
         for (Method method : DeviceDataKeys.class.getDeclaredMethods()) {
             if (!Modifier.isPublic(method.getModifiers()) || !Modifier.isStatic(method.getModifiers())
                     || method.getReturnType() != DataKey.class) {
                 continue;
             }
-            count++;
-            assertEquals(method.getName(), 1, method.getParameterCount());
-            assertEquals(method.getName(), boolean.class, method.getParameterTypes()[0]);
+            String name = method.getName();
+            if (method.getParameterCount() == 0) {
+                assertFactoryName(method, (DataKey<?>) method.invoke(null));
+                fixedCount++;
+                continue;
+            }
+
+            variantCount++;
+            assertEquals(name, 1, method.getParameterCount());
+            assertEquals(name, boolean.class, method.getParameterTypes()[0]);
             DataKey<?> normal = (DataKey<?>) method.invoke(null, false);
             DataKey<?> platform = (DataKey<?>) method.invoke(null, true);
-            String expectedPrefix = storeName(normal.store) + formatName(
-                    ((ParameterizedType) method.getGenericReturnType()).getActualTypeArguments()[0]);
-            String name = method.getName();
-            assertTrue(name, name.startsWith(expectedPrefix));
-            assertTrue(name, name.length() > expectedPrefix.length());
-            assertTrue(name, Character.isUpperCase(name.charAt(expectedPrefix.length())));
+            assertFactoryName(method, normal);
             assertEquals(name, normal.store, platform.store);
             assertEquals(name, normal.key, platform.key);
             assertEquals(name, normal.codec.schemaId(), platform.codec.schemaId());
             assertEquals(name, Wire.USER_CE, normal.scope);
             assertEquals(name, Wire.DEVICE_DE, platform.scope);
         }
-        assertEquals(83, count);
+        assertEquals(83, variantCount);
+        assertEquals(4, fixedCount);
         // 历史综合示例仍指向原业务地址，只有 Java 方法名发生变化。
         assertEquals("mode", DeviceDataKeys.memoryIntMode(false).key);
         assertEquals("config", DeviceDataKeys.fileObjectConfig(false).key);
         assertEquals("config", DeviceDataKeys.databaseObjectConfig(false).key);
         assertEquals("tags", DeviceDataKeys.databaseListStringTags(false).key);
         assertEquals("options", DeviceDataKeys.fileMapStringStringOptions(false).key);
+    }
+
+    private static void assertFactoryName(Method method, DataKey<?> key) {
+        String prefix = storeName(key.store) + formatName(
+                ((ParameterizedType) method.getGenericReturnType()).getActualTypeArguments()[0]);
+        String name = method.getName();
+        assertTrue(name, name.startsWith(prefix));
+        assertTrue(name, name.length() > prefix.length());
+        assertTrue(name, Character.isUpperCase(name.charAt(prefix.length())));
     }
 
     private static String storeName(int store) {

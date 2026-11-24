@@ -39,6 +39,10 @@ public final class AccessControllerTest {
             return uid == OWNER_UID;
         }
 
+        @Override public Integer installedAppFlags(String name, int uid, int userId) {
+            return null;
+        }
+
         @Override public String[] packagesForUid(int uid) {
             if (uid == OWNER_UID) return new String[]{OWNER};
             if (uid == TARGET_UID) return new String[]{TARGET};

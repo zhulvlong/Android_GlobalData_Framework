@@ -12,7 +12,7 @@ public final class Wire {
     /** 主版本不一致时客户端拒绝连接。 */
     public static final int PROTOCOL_MAJOR = 1;
     /** 次版本供 SDK 判断所需能力是否齐备。 */
-    public static final int PROTOCOL_MINOR = 1;
+    public static final int PROTOCOL_MINOR = 2;
     /** 限制单次 Binder 传输与服务端内存占用；服务端在 StoredValue.parse 中再次校验。 */
     public static final int MAX_PAYLOAD = 64 * 1024;
     /** MEMORY 为进程内暂存；FILE 为每 namespace 的 AtomicFile；DATABASE 为 SQLite KV。 */
@@ -31,7 +31,7 @@ public final class Wire {
             CONFLICT = 3, QUOTA_EXCEEDED = 4, UNSUPPORTED = 5, LOCKED = 6,
             STORAGE_UNAVAILABLE = 7, BAD_REQUEST = 8, BUSY = 9;
     /**
-     * ACL 权限位：READ/WRITE/DELETE/OBSERVE 作用于数据 namespace，
+     * ACL 权限位：READ/WRITE/DELETE/OBSERVE 作用于数据 namespace 或完整 Key，
      * PUBLISH/SUBSCRIBE 作用于完整事件 topic；可用按位或组合。
      */
     public static final int READ = 1, WRITE = 2, DELETE = 4, OBSERVE = 8,
@@ -48,8 +48,14 @@ public final class Wire {
             FEATURE_DATABASE = 1L << 2, FEATURE_CAS = 1L << 3,
             FEATURE_OBSERVE = 1L << 4, FEATURE_EVENT = 1L << 5,
             FEATURE_ACL = 1L << 6, FEATURE_DE_CE = 1L << 7;
+    /** 单 Key 规则的生效对象。设备级与用户级对象不可混用。 */
+    public static final int AUDIENCE_DEVICE_ALL = 1, AUDIENCE_USER_ALL = 2,
+            AUDIENCE_USER_PREINSTALLED = 3, AUDIENCE_USER_SAME_SIGNATURE = 4;
+    /** 支持按完整数据地址授予范围权限。 */
+    public static final long FEATURE_DATA_AUDIENCE = 1L << 8;
     public static final long ALL_FEATURES = FEATURE_MEMORY | FEATURE_FILE | FEATURE_DATABASE
-            | FEATURE_CAS | FEATURE_OBSERVE | FEATURE_EVENT | FEATURE_ACL | FEATURE_DE_CE;
+            | FEATURE_CAS | FEATURE_OBSERVE | FEATURE_EVENT | FEATURE_ACL | FEATURE_DE_CE
+            | FEATURE_DATA_AUDIENCE;
 
     /**
      * Bundle 字段名：STATUS 为结果码；STORE/SCOPE/OWNER/NAMESPACE/KEY 定位数据；

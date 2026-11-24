@@ -31,6 +31,10 @@ public final class DataObserversTest {
             @Override public boolean platformSigned(int uid) { return false; }
             @Override public String signature(String name, int user) { return "a".repeat(64); }
             @Override public boolean userUnlocked(int user) { return true; }
+            @Override public Integer installedAppFlags(String name, int uid, int userId) {
+                return null;
+            }
+
             @Override public String[] packagesForUid(int uid) {
                 if (identityUnavailable) throw new IllegalStateException("identity unavailable");
                 return ownsPackage ? new String[]{OWNER} : new String[0];

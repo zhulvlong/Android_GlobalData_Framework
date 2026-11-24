@@ -31,4 +31,9 @@ interface IGlobalDataTransport {
     long subscribeEvent(in Bundle address, IEventListener observer);
     /** 仅原订阅 UID 可用其 ID 取消事件监听。 */
     void unsubscribeEvent(long subscriptionId);
+
+    /** 给指定对象范围授予单 Key 权限。 */
+    Bundle grantDataAudience(in Bundle key, int audience, int rights);
+    /** 从指定对象范围撤销单 Key 权限位。 */
+    Bundle revokeDataAudience(in Bundle key, int audience, int rights);
 }

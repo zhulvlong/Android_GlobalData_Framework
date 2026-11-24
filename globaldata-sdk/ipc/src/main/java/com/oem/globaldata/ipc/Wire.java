@@ -11,7 +11,7 @@ public final class Wire {
     /** 主版本不同则拒绝连接，防止误解读请求结构。 */
     public static final int PROTOCOL_MAJOR = 1;
     /** 服务端次版本至少达到此值，客户端才认为所需能力齐备。 */
-    public static final int PROTOCOL_MINOR = 1;
+    public static final int PROTOCOL_MINOR = 2;
     /** 单个值的 payload 上限为 64 KiB，客户端和服务端都会检查。 */
     public static final int MAX_PAYLOAD = 64 * 1024;
 
@@ -98,9 +98,15 @@ public final class Wire {
     public static final long FEATURE_ACL = 1L << 6;
     /** 服务端区分 DE/CE 与用户级/设备级地址。 */
     public static final long FEATURE_DE_CE = 1L << 7;
+    /** 单 Key 规则的生效对象。设备级与用户级对象不可混用。 */
+    public static final int AUDIENCE_DEVICE_ALL = 1, AUDIENCE_USER_ALL = 2,
+            AUDIENCE_USER_PREINSTALLED = 3, AUDIENCE_USER_SAME_SIGNATURE = 4;
+    /** 支持按完整数据地址授予范围权限。 */
+    public static final long FEATURE_DATA_AUDIENCE = 1L << 8;
     /** 当前客户端连接时要求的能力集合。 */
     public static final long ALL_FEATURES = FEATURE_MEMORY | FEATURE_FILE | FEATURE_DATABASE
-            | FEATURE_CAS | FEATURE_OBSERVE | FEATURE_EVENT | FEATURE_ACL | FEATURE_DE_CE;
+            | FEATURE_CAS | FEATURE_OBSERVE | FEATURE_EVENT | FEATURE_ACL | FEATURE_DE_CE
+            | FEATURE_DATA_AUDIENCE;
 
     /** 响应状态码，int。 */
     public static final String STATUS = "status";

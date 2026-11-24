@@ -28,4 +28,4 @@ android {
         productFlavors.platformApp.signingConfig signingConfigs.platform
     }
 }
-dependencies { implementation 'com.oem.globaldata:device-contracts:4.0.0' }
+dependencies { implementation 'com.oem.globaldata:device-contracts:4.1.0' }

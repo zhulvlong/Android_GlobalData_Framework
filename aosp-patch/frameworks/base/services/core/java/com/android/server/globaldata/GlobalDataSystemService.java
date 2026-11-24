@@ -143,7 +143,7 @@ public final class GlobalDataSystemService extends SystemService {
                 StoreAddress key = StoreAddress.parse(request, user);
                 TLog.d(TAG, "read uid=" + uid + " " + TLog.address(key));
                 // 2. 授权必须在读后端前完成，不向未授权者泄露存在性或 revision。
-                int access = acl.authorize(uid, AccessController.data(key), Wire.READ, false);
+                int access = acl.authorizeData(uid, key, Wire.READ, false);
                 if (access != Wire.OK) {
                     TLog.w(TAG, "read denied uid=" + uid + " status=" + access);
                     return status(access);
@@ -177,7 +177,7 @@ public final class GlobalDataSystemService extends SystemService {
                 TLog.d(TAG, "write uid=" + uid + " " + TLog.address(key) + " mode=" + mode
                         + " expectedRevision=" + expectedRevision + " bytes=" + value.payload.length);
                 // 2. 核对 owner 或共享写入 grant；首次真实 owner 写入可能在此持久化身份。
-                int access = acl.authorize(uid, AccessController.data(key), Wire.WRITE, true);
+                int access = acl.authorizeData(uid, key, Wire.WRITE, true);
                 if (access != Wire.OK) {
                     TLog.w(TAG, "write denied uid=" + uid + " status=" + access);
                     return status(access);
@@ -213,7 +213,7 @@ public final class GlobalDataSystemService extends SystemService {
                 TLog.d(TAG, "delete uid=" + uid + " " + TLog.address(key)
                         + " expectedRevision=" + expectedRevision);
                 // 2. 先授权；拒绝时不探测目标 Key 是否存在。
-                int access = acl.authorize(uid, AccessController.data(key), Wire.DELETE, false);
+                int access = acl.authorizeData(uid, key, Wire.DELETE, false);
                 if (access != Wire.OK) {
                     TLog.w(TAG, "delete denied uid=" + uid + " status=" + access);
                     return status(access);
@@ -267,6 +267,28 @@ public final class GlobalDataSystemService extends SystemService {
                 });
             } catch (Exception e) { return failure(e); }
         }
+        @Override public Bundle grantDataAudience(Bundle request, int audience, int rights) {
+            return changeDataAudience(request, audience, rights, true);
+        }
+
+        @Override public Bundle revokeDataAudience(Bundle request, int audience, int rights) {
+            return changeDataAudience(request, audience, rights, false);
+        }
+
+        private Bundle changeDataAudience(Bundle request, int audience, int rights, boolean grant) {
+            int uid = Binder.getCallingUid();
+            try {
+                StoreAddress key = StoreAddress.parse(request, UserHandle.getUserId(uid));
+                return io(() -> {
+                    int result = acl.changeDataAudience(uid, key, audience, rights, grant);
+                    TLog.d(TAG, (grant ? "grantDataAudience" : "revokeDataAudience")
+                            + " uid=" + uid + " " + TLog.address(key) + " audience=" + audience
+                            + " rights=" + rights + " status=" + result);
+                    return status(result);
+                });
+            } catch (Exception e) { return failure(e); }
+        }
+
         /** 先检查 OBSERVE 再登记，避免未授权 App 借回调观察 Key 的变化时间。 */
         @Override public long subscribeData(Bundle request, IDataObserver observer) {
             int uid = Binder.getCallingUid(), user = UserHandle.getUserId(uid);
@@ -274,7 +296,7 @@ public final class GlobalDataSystemService extends SystemService {
                 // 1. 先校验 OBSERVE；订阅本身不触发初次 read，也不要求 READ 权限。
                 StoreAddress key = StoreAddress.parse(request, user);
                 TLog.d(TAG, "subscribeData uid=" + uid + " " + TLog.address(key));
-                int access = acl.authorize(uid, AccessController.data(key), Wire.OBSERVE, false);
+                int access = acl.authorizeData(uid, key, Wire.OBSERVE, false);
                 if (access != Wire.OK) {
                     TLog.w(TAG, "subscribeData denied uid=" + uid + " status=" + access);
                     return -1;
