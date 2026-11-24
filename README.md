@@ -21,6 +21,6 @@
 
 - `aosp-patch/` 是待合入目标 AOSP/厂商源码的增量补丁，不是可独立启动的 Android 系统。
 - `globaldata-sdk/` 是独立 Gradle 工程；`App1/`、`App2/` 是两个独立示例 App 工程。
-- `verification/verify.ps1` 比较客户端和系统侧 IPC 声明与常量，并在主机 JVM 上检查 MemoryBackend 的 CAS 和隔离语义。
+- `verification/verify.ps1` 比较客户端和系统侧 IPC 声明与常量，并在主机 JVM 上检查 MemoryBackend 的 CAS、隔离与配额。
 
 本地构建及主机测试不能代替系统镜像编译、平台签名、SELinux、重启、断电和跨用户设备测试。实际通过的检查以执行结果为准。

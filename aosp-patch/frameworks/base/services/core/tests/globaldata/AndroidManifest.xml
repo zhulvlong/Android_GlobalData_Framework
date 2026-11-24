@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="com.android.server.globaldata.tests">
+    <application android:label="GlobalDataBackendTests" />
+    <instrumentation
+        android:name="androidx.test.runner.AndroidJUnitRunner"
+        android:targetPackage="com.android.server.globaldata.tests" />
+</manifest>

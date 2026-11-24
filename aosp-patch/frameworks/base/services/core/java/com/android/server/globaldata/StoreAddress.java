@@ -3,6 +3,7 @@ package com.android.server.globaldata;
 import android.os.Bundle;
 import com.oem.globaldata.ipc.Wire;
 import java.util.Objects;
+import java.util.regex.Pattern;
 
 /**
  * 单条数据的完整服务端地址。store 选择后端，scope/userId 选择 DE/CE 用户目录，
@@ -10,6 +11,7 @@ import java.util.Objects;
  * 服务端统一构造地址，避免各后端各自解释用户、owner 或路径规则而产生越权差异。
  */
 final class StoreAddress {
+    private static final Pattern NAME = Pattern.compile("[A-Za-z0-9_.\\-/]+");
     /** store、scope 为 Wire 枚举；DEVICE_DE 地址的 userId 统一归一化为 0。 */
     final int store, scope, userId;
     /** owner 为包名，namespace 为授权分组，key 为组内记录名。 */
@@ -42,7 +44,7 @@ final class StoreAddress {
     static boolean name(String value, int max) {
         // 允许有限的路径样式分隔符，但不允许上级目录或绝对路径形态。
         return value != null && !value.isEmpty() && value.length() <= max
-                && value.matches("[A-Za-z0-9_.\\-/]+") && !value.contains("..")
+                && NAME.matcher(value).matches() && !value.contains("..")
                 && !value.startsWith("/") && !value.endsWith("/");
     }
     /** 后端的 namespace 标识，不含单条 key；高水位和文件快照按此分组。 */

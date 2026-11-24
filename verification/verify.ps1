@@ -44,6 +44,7 @@ $sources = @(
     (Join-Path $server 'com\android\server\globaldata\StoredValue.java'),
     (Join-Path $server 'com\android\server\globaldata\TLog.java'),
     (Join-Path $server 'com\android\server\globaldata\MemoryBackend.java'),
+    (Join-Path $server 'com\android\server\globaldata\StorageQuota.java'),
     (Join-Path $PSScriptRoot 'stubs\android\util\Log.java'),
     (Join-Path $PSScriptRoot 'stubs\com\android\server\globaldata\AccessController.java'),
     (Join-Path $PSScriptRoot 'BackendSemantics.java')

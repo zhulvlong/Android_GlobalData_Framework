@@ -9,6 +9,7 @@ import com.oem.globaldata.ipc.Wire;
 import java.io.File;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.function.Function;
 
 /**
  * SQLite 键值后端。每个 scope/user 使用一个数据库；kv 保存当前记录，
@@ -17,46 +18,71 @@ import java.util.Map;
  * 分库保持 DE/CE 加密边界和用户隔离；数据行与版本行必须在同一事务内改变，
  * 否则重启后可能出现值已更新、CAS 版本却还是旧值的状态。
  */
-final class DatabaseBackend implements Backend {
+final class DatabaseBackend implements Backend, AutoCloseable {
     /** 日志二级标识。 */
     private static final String TAG = "DatabaseBackend";
 
-    /** scope|userId -> 已打开的 SQLite 连接，由 synchronized 入口串行访问。 */
     private final Map<String, SQLiteDatabase> dbs = new HashMap<>();
-    /**
-     * 按作用域和用户打开数据库，而非把所有用户放进同一文件。
-     * WAL 与 FULL 同步兼顾日志式写入和提交持久性，首次打开时创建版本表与值表。
-     */
-    private SQLiteDatabase db(StoreAddress key) {
-        String id = key.scope + "|" + key.userId;
-        // 1. 同一用户/作用域复用连接，避免每个 Key 都重复打开 SQLite 文件。
-        SQLiteDatabase db = dbs.get(id);
-        if (db != null && db.isOpen()) {
-            TLog.d(TAG, "connection reused scope=" + key.scope + " user=" + key.userId);
-            return db;
-        }
-        TLog.d(TAG, "opening scope=" + key.scope + " user=" + key.userId);
-        // 2. 用 DE/CE 系统目录隔离用户与解锁状态；新目录需要正确 SELinux 标签。
+    private final Function<StoreAddress, File> directories;
+
+    DatabaseBackend() {
+        this(DatabaseBackend::directory);
+    }
+
+    DatabaseBackend(Function<StoreAddress, File> directories) {
+        this.directories = directories;
+    }
+
+    private static File directory(StoreAddress key) {
         File parent = key.scope == Wire.USER_CE
                 ? Environment.getDataSystemCeDirectory(key.userId)
                 : Environment.getDataSystemDeDirectory(key.userId);
-        File dir = new File(parent, "globaldata/db");
-        if (!dir.exists()) {
-            if (!dir.mkdirs() || !SELinux.restoreconRecursive(dir))
-                throw new IllegalStateException("cannot create database dir");
-        }
-        // 3. 初始化数据库和表后才缓存连接，避免后续请求复用半初始化状态。
-        db = SQLiteDatabase.openOrCreateDatabase(new File(dir, "globaldata-v1.db"), null);
-        db.enableWriteAheadLogging(); db.execSQL("PRAGMA synchronous=FULL");
-        // 如果版本只存在 kv 行，删除最后一个 Key 后旧的“不存在”CAS 会误以为版本又归零。
-        db.execSQL("CREATE TABLE IF NOT EXISTS nsrev (owner TEXT NOT NULL, ns TEXT NOT NULL, "
-                + "rev INTEGER NOT NULL, PRIMARY KEY(owner,ns))");
-        db.execSQL("CREATE TABLE IF NOT EXISTS kv (owner TEXT NOT NULL, ns TEXT NOT NULL, "
-                + "k TEXT NOT NULL, schema_id TEXT NOT NULL, schema_ver INTEGER NOT NULL, "
-                + "encoding TEXT NOT NULL, payload BLOB NOT NULL, rev INTEGER NOT NULL, "
-                + "PRIMARY KEY(owner,ns,k))");
-        dbs.put(id, db); return db;
+        return new File(parent, "globaldata/db");
     }
+
+    static String fileName(StoreAddress key) {
+        // 旧库两种 DE 共用 user 0 的文件且表里没有 Scope，不能推断旧记录归属。
+        if (key.scope == Wire.DEVICE_DE) return "globaldata-device-de-v1.db";
+        if (key.scope == Wire.USER_DE && key.userId == 0) return "globaldata-user-de-v1.db";
+        return "globaldata-v1.db";
+    }
+
+    private SQLiteDatabase db(StoreAddress key) {
+        String id = key.scope + "|" + key.userId;
+        SQLiteDatabase db = dbs.get(id);
+        if (db != null && db.isOpen()) return db;
+
+        File dir = directories.apply(key);
+        if (!dir.isDirectory() && (!dir.mkdirs() || !SELinux.restoreconRecursive(dir))) {
+            throw new IllegalStateException("cannot create database dir");
+        }
+        File path = new File(dir, fileName(key));
+        // 保留损坏文件供恢复，避免 SQLite 默认处理器清理数据库文件。
+        db = SQLiteDatabase.openOrCreateDatabase(path.getPath(), null,
+                damaged -> TLog.e(TAG, "database corruption; files retained"));
+        try {
+            db.enableWriteAheadLogging();
+            db.execSQL("PRAGMA synchronous=FULL");
+            // Keep namespace versions separately so deleting the last value cannot reset CAS.
+            db.execSQL("CREATE TABLE IF NOT EXISTS nsrev (owner TEXT NOT NULL, ns TEXT NOT NULL, "
+                    + "rev INTEGER NOT NULL, PRIMARY KEY(owner,ns))");
+            db.execSQL("CREATE TABLE IF NOT EXISTS kv (owner TEXT NOT NULL, ns TEXT NOT NULL, "
+                    + "k TEXT NOT NULL, schema_id TEXT NOT NULL, schema_ver INTEGER NOT NULL, "
+                    + "encoding TEXT NOT NULL, payload BLOB NOT NULL, rev INTEGER NOT NULL, "
+                    + "PRIMARY KEY(owner,ns,k))");
+            dbs.put(id, db);
+            return db;
+        } catch (RuntimeException e) {
+            db.close();
+            throw e;
+        }
+    }
+
+    @Override public synchronized void close() {
+        for (SQLiteDatabase db : dbs.values()) db.close();
+        dbs.clear();
+    }
+
     /** 读取 namespace 的最新成功变更版本；尚无变更时为 0。 */
     private static long highWater(SQLiteDatabase db, StoreAddress key) {
         try (Cursor c = db.rawQuery("SELECT rev FROM nsrev WHERE owner=? AND ns=?",
@@ -89,6 +115,43 @@ final class DatabaseBackend implements Backend {
                 + " revision=" + revision);
         return new Snapshot(value, revision);
     }
+    private static boolean withinQuota(SQLiteDatabase db, StoreAddress key, StoredValue old,
+            StoredValue proposed, long highWater) {
+        String[] owner = {key.owner};
+        // 转 BLOB 后按 UTF-8 字节计算，与内存后端的计费口径一致。
+        long metadata;
+        long newPayload = proposed.payload.length - (old == null ? 0 : old.payload.length);
+        long newMetadata = StorageQuota.recordBytes(key.owner, key.namespace, key.key, proposed);
+        if (old != null) {
+            newMetadata -= StorageQuota.recordBytes(key.owner, key.namespace, key.key, old);
+        }
+        try (Cursor c = db.rawQuery("SELECT COUNT(*), COALESCE(SUM(LENGTH(payload)),0), "
+                + "COALESCE(SUM(" + StorageQuota.RECORD_OVERHEAD + " + LENGTH(CAST(owner AS BLOB))"
+                + " + LENGTH(CAST(ns AS BLOB)) + LENGTH(CAST(k AS BLOB))"
+                + " + LENGTH(CAST(schema_id AS BLOB)) + LENGTH(CAST(encoding AS BLOB))),0)"
+                + " FROM kv WHERE owner=?", owner)) {
+            c.moveToFirst();
+            if (c.getLong(0) + (old == null ? 1 : 0) > StorageQuota.DATABASE_RECORDS
+                    || c.getLong(1) + newPayload > StorageQuota.DATABASE_PAYLOAD) {
+                return false;
+            }
+            metadata = c.getLong(2) + newMetadata;
+        }
+        try (Cursor c = db.rawQuery("SELECT COUNT(*), COALESCE(SUM("
+                + StorageQuota.NAMESPACE_OVERHEAD + " + LENGTH(CAST(owner AS BLOB))"
+                + " + LENGTH(CAST(ns AS BLOB))),0) FROM nsrev WHERE owner=?", owner)) {
+            c.moveToFirst();
+            // 以 nsrev 判断是否首次使用，删除最后一条值后仍占用高水位名额。
+            boolean newNamespace = highWater == 0;
+            if (c.getLong(0) + (newNamespace ? 1 : 0) > StorageQuota.RETAINED_NAMESPACES) {
+                return false;
+            }
+            metadata += c.getLong(1);
+            if (newNamespace) metadata += StorageQuota.namespaceBytes(key.owner, key.namespace);
+            return metadata <= StorageQuota.DATABASE_METADATA;
+        }
+    }
+
     /**
      * 单事务内完成旧值读取、CAS、owner 配额检查、kv 更新和高水位推进。
      * 这样并发条件写入不会分别通过同一个旧版本，提前返回的冲突/配额错误也会回滚。
@@ -104,18 +167,12 @@ final class DatabaseBackend implements Backend {
                 TLog.d(TAG, "write precondition " + TLog.address(key) + " status=" + status);
                 return new Change(status, 0, old == null ? high : old.revision);
             }
-            // 2. 只计算当前 payload 并替换旧值大小，限制此 owner 的磁盘占用。
-            try (Cursor c = db.rawQuery("SELECT COALESCE(SUM(LENGTH(payload)),0) FROM kv WHERE owner=?",
-                    new String[]{key.owner})) {
-                c.moveToFirst();
-                long used = c.getLong(0) + proposed.payload.length - (old == null ? 0 : old.payload.length);
-                if (used > 16L * 1024 * 1024) {
-                    TLog.d(TAG, "write quota " + TLog.address(key) + " bytes=" + used);
-                    return new Change(Wire.QUOTA_EXCEEDED, 0, high);
-                }
+            if (!withinQuota(db, key, old, proposed, high)) {
+                TLog.d(TAG, "write quota " + TLog.address(key));
+                return new Change(Wire.QUOTA_EXCEEDED, 0, old == null ? high : old.revision);
             }
             // 3. 值行与 namespace 高水位必须同一事务提交，CAS 才不会看到不一致版本。
-            long revision = high + 1;
+            long revision = Math.incrementExact(high);
             ContentValues values = new ContentValues(); values.put("owner", key.owner);
             values.put("ns", key.namespace); values.put("k", key.key);
             values.put("schema_id", proposed.schemaId); values.put("schema_ver", proposed.schemaVersion);
@@ -152,7 +209,7 @@ final class DatabaseBackend implements Backend {
                 return new Change(Wire.CONFLICT, 0, old.revision);
             }
             // 2. 物理删除 kv 行时仍写入新的 nsrev；否则版本无法反映这次删除。
-            long revision = high + 1;
+            long revision = Math.incrementExact(high);
             if (db.delete("kv", "owner=? AND ns=? AND k=?",
                     new String[]{key.owner, key.namespace, key.key}) != 1)
                 throw new IllegalStateException("value delete failed");

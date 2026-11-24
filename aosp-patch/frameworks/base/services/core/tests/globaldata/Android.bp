@@ -1,0 +1,10 @@
+android_test {
+    name: "GlobalDataBackendTests",
+    srcs: [
+        "*.java",
+        ":globaldata-backend-test-sources",
+    ],
+    static_libs: ["androidx.test.runner", "junit"],
+    platform_apis: true,
+    test_suites: ["device-tests"],
+}

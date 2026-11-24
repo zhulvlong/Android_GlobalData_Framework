@@ -71,7 +71,15 @@ cd ..; .\verification\verify.ps1
 
 普通变体：先安装 App2，再安装 App1；App1 点击“授权 App2”，随后双方可操作 `USER_CE` 的 `share.com.oem.globaldata.app1`。平台变体用于 `DEVICE_DE` 的 `sys.device`。**PlatformAppDebug 默认调试签名不具备平台身份**；需要平台签名私钥后，用 `PLATFORM_KEYSTORE`、`PLATFORM_STORE_PASSWORD`、`PLATFORM_KEY_ALIAS`、`PLATFORM_KEY_PASSWORD` 提供 JKS/PKCS12 签名，或对 unsigned release APK 使用目标 ROM 的签名流程。不要把平台私钥提交进本工程。同一包名的普通/平台变体不能并存安装，切换前卸载旧变体。
 
-## 5. 设备验收顺序
+## 5. 后端回归测试与设备验收
+
+将 `aosp-patch/frameworks/base/services/core/tests/globaldata/` 复制到 AOSP 的同名目录，再将 `globaldata-backend-test-sources.bp.fragment` 中的 filegroup 追加到目标 `frameworks/base/services/core/Android.bp`。测试 APK 会编译同一份后端源码，在应用私有临时目录运行 AtomicFile 与 SQLite 测试，并注入受控的 ACL 身份。连接测试设备后运行：
+
+```sh
+atest GlobalDataBackendTests
+```
+
+Windows 端的 `verification/verify.ps1` 检查 IPC 一致性以及 MemoryBackend 的 CAS、隔离和配额。接下来在刷入目标镜像的设备上验证真实服务链路：
 
 1. App2 未获授权时读/订阅失败；App1 授权后能读、写、监听，撤销后新读写和回调均被拒绝。
 2. 三 Store 同名 key 互不覆盖；File/DB 成功写入后重启仍可读，Memory 重启后为空。
@@ -79,6 +87,7 @@ cd ..; .\verification\verify.ps1
 4. 事件只到在线授权订阅者；离线无补发，三 Store 不新增事件 Key。
 5. 未解锁访问 CE 返回 `LOCKED`；跨 User/Profile 无默认授权；UID 复用和签名变更不取得旧 owner 权限。
 6. 新增 DeviceConfig 字段和 Topic 时，仅重建 Contracts AAR 与相关 APK；确认系统镜像二进制不变。
+7. 写入 File 后重启服务，核对最后一条和缺失 Key 的 revision。模拟 ACL 损坏时，核对 owner、已授权应用、平台身份都被拒绝，且没有覆盖原 ACL。停止服务，恢复可信备份及安全上下文后再重启，检查授权恢复。
 
 本地只能验证 SDK/App 构建和可脱离系统的单元逻辑；重启、签名权限、CE/DE、SELinux、断电与系统服务恢复必须在刷入目标镜像的设备上完成。
 

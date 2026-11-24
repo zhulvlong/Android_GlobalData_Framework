@@ -1,0 +1,19 @@
+// Append to frameworks/base/services/core/Android.bp.
+filegroup {
+    name: "globaldata-backend-test-sources",
+    srcs: [
+        "java/com/android/server/globaldata/AccessController.java",
+        "java/com/android/server/globaldata/Backend.java",
+        "java/com/android/server/globaldata/DataObservers.java",
+        "java/com/android/server/globaldata/DatabaseBackend.java",
+        "java/com/android/server/globaldata/FileBackend.java",
+        "java/com/android/server/globaldata/StorageFiles.java",
+        "java/com/android/server/globaldata/StorageQuota.java",
+        "java/com/android/server/globaldata/StoreAddress.java",
+        "java/com/android/server/globaldata/StoredValue.java",
+        "java/com/android/server/globaldata/TLog.java",
+        "java/com/oem/globaldata/ipc/Wire.java",
+        "java/com/oem/globaldata/ipc/IDataObserver.aidl",
+    ],
+    visibility: ["//frameworks/base/services/core/tests/globaldata"],
+}

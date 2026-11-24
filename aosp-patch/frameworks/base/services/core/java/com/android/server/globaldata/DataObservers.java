@@ -6,8 +6,10 @@ import android.os.RemoteException;
 import com.oem.globaldata.ipc.IDataObserver;
 import com.oem.globaldata.ipc.Wire;
 import java.util.Map;
+import java.util.NoSuchElementException;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executor;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
@@ -28,14 +30,20 @@ final class DataObservers {
     /** 订阅 ID -> 回调 Binder 和身份信息，可供投递线程并发遍历。 */
     private final Map<Long, Entry> entries = new ConcurrentHashMap<>();
     /** 单线程顺序投递，最多等待 256 个通知任务；溢出时提示客户端重同步。 */
-    private final ThreadPoolExecutor queue = new ThreadPoolExecutor(1, 1, 0, TimeUnit.SECONDS,
-            new ArrayBlockingQueue<>(256));
+    private final Executor queue;
     /**
      * 注册时的权限可能在排队期间被撤销；投递前再次检查，
      * 避免已撤权客户端继续根据变化时间推测 Key 的活动。
      */
     private final AccessController acl;
-    DataObservers(AccessController acl) { this.acl = acl; }
+    DataObservers(AccessController acl) {
+        this(acl, new ThreadPoolExecutor(1, 1, 0, TimeUnit.SECONDS, new ArrayBlockingQueue<>(256)));
+    }
+
+    DataObservers(AccessController acl, Executor queue) {
+        this.acl = acl;
+        this.queue = queue;
+    }
     /** Binder 死亡时自动清理登记，避免客户端崩溃后持续占用订阅配额与回调资源。 */
     private final class Entry implements IBinder.DeathRecipient {
         /** 内部类日志标识。 */
@@ -82,8 +90,12 @@ final class DataObservers {
         TLog.d(TAG, "remove request id=" + id + " uid=" + uid);
         // 先核对创建者，再移除映射并解绑死亡回调；未知 ID 直接视为已取消。
         Entry entry = entries.get(id);
-        if (entry == null || entry.uid != uid) return;
-        entries.remove(id); entry.observer.asBinder().unlinkToDeath(entry, 0);
+        if (entry == null || entry.uid != uid || !entries.remove(id, entry)) return;
+        try {
+            entry.observer.asBinder().unlinkToDeath(entry, 0);
+        } catch (NoSuchElementException ignored) {
+            // Binder 可能已经处理了死亡回调，订阅记录已移除。
+        }
         TLog.d(TAG, "removed id=" + id + " uid=" + uid);
     }
     /**
@@ -100,10 +112,7 @@ final class DataObservers {
                 // 2. 投递放入独立队列，避免慢客户端回调阻塞存储提交路径。
                 queue.execute(() -> {
                     // 3. 排队期间授权可能已被撤销，真正发送前再检查一次。
-                    if (acl.check(entry.uid, AccessController.data(key), Wire.OBSERVE) != Wire.OK) {
-                        TLog.w(TAG, "delivery revoked id=" + entry.id + " uid=" + entry.uid);
-                        remove(entry.id, entry.uid); return;
-                    }
+                    if (!mayDeliver(entry)) return;
                     // 4. 只发送元信息；客户端用 revision/epoch 判断是否需要重新读取。
                     Bundle event = new Bundle(); event.putInt(Wire.STORE, key.store);
                     event.putInt(Wire.SCOPE, key.scope); event.putString(Wire.OWNER, key.owner);
@@ -114,7 +123,7 @@ final class DataObservers {
                         entry.observer.onDataChanged(event);
                         TLog.d(TAG, "delivered id=" + entry.id + " revision=" + revision);
                     }
-                    catch (RemoteException e) {
+                    catch (RemoteException | RuntimeException e) {
                         // Binder 失败不回滚已提交的数据，只清理失效订阅。
                         TLog.w(TAG, "delivery binder failure id=" + entry.id);
                         remove(entry.id, entry.uid);
@@ -123,12 +132,29 @@ final class DataObservers {
             } catch (RejectedExecutionException overflow) {
                 // 5. 队列已丢失普通通知，直接提示客户端全量重读以修复缓存视图。
                 TLog.w(TAG, "queue overflow id=" + entry.id + " uid=" + entry.uid);
+                if (!mayDeliver(entry)) continue;
                 try { entry.observer.onResyncRequired(epoch); }
-                catch (RemoteException e) {
+                catch (RemoteException | RuntimeException e) {
+                    // 溢出回调发生在提交线程上，投递失败不能覆盖已经确定的提交结果。
                     TLog.w(TAG, "resync binder failure id=" + entry.id);
                     remove(entry.id, entry.uid);
                 }
             }
         }
+    }
+
+    private boolean mayDeliver(Entry entry) {
+        if (entries.get(entry.id) != entry) return false;
+        int status;
+        try {
+            status = acl.check(entry.uid, AccessController.data(entry.key), Wire.OBSERVE);
+        } catch (RuntimeException e) {
+            // 身份服务暂时不可用时跳过本次通知，保留订阅供下一次重新鉴权。
+            TLog.w(TAG, "delivery authorization failed id=" + entry.id);
+            return false;
+        }
+        if (status == Wire.OK) return entries.get(entry.id) == entry;
+        remove(entry.id, entry.uid);
+        return false;
     }
 }
