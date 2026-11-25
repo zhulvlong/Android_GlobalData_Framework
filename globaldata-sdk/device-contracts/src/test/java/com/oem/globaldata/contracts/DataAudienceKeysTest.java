@@ -9,23 +9,22 @@ import com.oem.globaldata.ipc.Wire;
 import org.junit.Test;
 
 public final class DataAudienceKeysTest {
-    @Test public void fixedFactoriesKeepExistingDataAndGrantAddresses() {
+    @Test public void fixedFactoriesUseExpectedCompleteAddresses() {
         assertAddress(DeviceDataKeys.fileStringDeviceAudienceDemo(), Wire.FILE, Wire.DEVICE_DE,
-                "share.com.oem.globaldata.app1", "demo_audience_device_all");
+                "demo_audience_device_all");
         assertAddress(DeviceDataKeys.memoryStringUserAllAudienceDemo(), Wire.MEMORY, Wire.USER_CE,
-                "app.com.oem.globaldata.app1", "demo_audience_user_all");
+                "demo_audience_user_all");
         assertAddress(DeviceDataKeys.databaseStringUserPreinstalledAudienceDemo(), Wire.DATABASE,
-                Wire.USER_CE, "app.com.oem.globaldata.app1", "demo_audience_user_preinstalled");
+                Wire.USER_CE, "demo_audience_user_preinstalled");
         assertAddress(DeviceDataKeys.fileStringUserSameSignatureAudienceDemo(), Wire.FILE,
-                Wire.USER_CE, "app.com.oem.globaldata.app1", "demo_audience_user_same_signature");
+                Wire.USER_CE, "demo_audience_user_same_signature");
     }
 
     private static void assertAddress(DataKey<String> key, int store, int scope,
-            String namespace, String name) {
+            String name) {
         assertEquals(store, key.store);
         assertEquals(scope, key.scope);
         assertEquals("com.oem.globaldata.app1", key.ownerPackage);
-        assertEquals(namespace, key.namespace);
         assertEquals(name, key.key);
         assertSame(Codecs.STRING, key.codec);
     }

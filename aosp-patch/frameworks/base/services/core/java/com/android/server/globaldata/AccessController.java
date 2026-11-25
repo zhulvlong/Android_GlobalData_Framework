@@ -9,7 +9,6 @@ import android.os.Binder;
 import android.os.Bundle;
 import android.os.Environment;
 import android.os.Process;
-import android.os.SELinux;
 import android.os.UserHandle;
 import android.os.UserManager;
 import android.util.AtomicFile;
@@ -22,7 +21,6 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
-import java.nio.file.Files;
 import java.security.MessageDigest;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -33,7 +31,7 @@ import java.util.zip.CheckedInputStream;
 import java.util.zip.CheckedOutputStream;
 
 /**
- * 数据 namespace、单 Key 范围授权与事件 topic 的服务端权限控制器。每次访问用 Binder UID 核对包名、
+ * 完整 DataKey 授权与事件 topic 的服务端权限控制器。每次访问用 Binder UID 核对包名、
  * 当前签名、作用域与 ACL；owner 身份和 grant 都绑定签名摘要，不仅依赖可复用的 UID。
  * ACL 保存在 system DE 目录；加载失败时阻止访问并保留原始文件。
  * 这样包名被不同签名应用重装或 UID 被其他包复用时，旧授权不会落到新身份上；
@@ -44,16 +42,18 @@ final class AccessController {
     private static final String TAG = "AccessController";
 
     /** ACL 二进制文件的魔数和格式版本；与 Wire 协议版本相互独立。 */
-    private static final int MAGIC = 0x47444131, VERSION_V1 = 1, VERSION_V2 = 2;
+    private static final int MAGIC = 0x47444132, VERSION = 1;
     /** 生产环境由系统 Context 查询身份，平台测试可注入受控身份。 */
     interface Identities {
         boolean platformSigned(int uid);
         String signature(String packageName, int userId);
+        String signatureInAnyUser(String packageName);
         String[] packagesForUid(int uid);
         Integer installedAppFlags(String packageName, int uid, int userId);
         boolean userUnlocked(int userId);
     }
 
+    static final int DATA = 1, EVENT = 2;
     private static final int MAX_OWNERS = 100000, MAX_GRANTS = 100000;
     private static final int MAX_AUDIENCE_GRANTS = 100000;
     private final Identities identities;
@@ -64,8 +64,9 @@ final class AccessController {
     private final AtomicFile file;
     /** 资源 ID -> owner 当前签名摘要；阻止包名被不同签名应用接管。 */
     private final Map<String, String> owners = new HashMap<>();
-    /** 资源 ID + 目标包名 -> 目标签名与权限位集合。 */
-    private final Map<String, Grant> grants = new HashMap<>();
+    /** 数据规则额外保存 Store 和 Key，事件规则的完整 topic 已含在 ownerId 中。 */
+    private record GrantKey(String ownerId, int store, String key, String target) {}
+    private final Map<GrantKey, Grant> grants = new HashMap<>();
     // 完整地址包含 Store，避免同名 Key 在三种后端之间共享范围权限。
     private record AudienceKey(StoreAddress address, int audience) {}
     private final Map<AudienceKey, Integer> audienceGrants = new HashMap<>();
@@ -78,33 +79,30 @@ final class AccessController {
         final int rights;
         Grant(String signature, int rights) { this.signature = signature; this.rights = rights; }
     }
-    /** ACL 资源地址；数据资源 name 为 namespace，事件资源 name 为完整 topic。 */
+    /** 签名绑定地址。数据按 scope/user/owner 绑定，事件按完整 topic 绑定。 */
     static final class Resource {
         /** type 区分数据/事件；scope/userId 区分设备或 Android 用户。 */
         final int type, scope, userId;
-        /** owner 是资源所属包名，name 是 namespace 或 topic。 */
+        /** owner 是资源所属包名，事件的 name 是完整 topic。 */
         final String owner, name;
         Resource(int type, int scope, int userId, String owner, String name) {
             // 设备级 DE 数据属于固定 user 0；用户级地址使用真实调用者所属 user。
             this.type = type; this.scope = scope; this.userId = scope == Wire.DEVICE_DE ? 0 : userId;
             this.owner = owner; this.name = name;
         }
-        /** namespace 或 topic 的稳定资源 ID，也是单 Key 授权引用的 owner 绑定。 */
+        /** 持久化的 owner 签名绑定 ID。 */
         String id() { return type + "|" + scope + "|" + userId + "|" + owner + "|" + name; }
     }
     AccessController(Context context) {
-        this(new File(Environment.getDataSystemDeDirectory(0), "globaldata"),
+        this(new File(Environment.getDataSystemDeDirectory(0), "globaldata/v2"),
                 new AndroidIdentities(context));
     }
 
     AccessController(File directory, Identities identities) {
         this.identities = identities;
-        file = new AtomicFile(new File(directory, "acl-v1.bin"));
+        file = new AtomicFile(new File(directory, "acl.bin"));
         try {
-            if (!Files.isDirectory(directory.toPath())) {
-                Files.createDirectories(directory.toPath());
-                if (!SELinux.restoreconRecursive(directory)) throw new IOException("ACL label");
-            }
+            StorageFiles.prepareDirectory(directory);
             load();
         } catch (IOException | RuntimeException e) {
             TLog.e(TAG, "ACL unavailable type=" + e.getClass().getSimpleName());
@@ -115,9 +113,9 @@ final class AccessController {
         }
     }
 
-    /** 将单条数据地址映射到其 namespace 级 ACL 资源。 */
+    /** 数据 owner 签名在同一 Scope 和 Android 用户的各 Store 间共用。 */
     static Resource data(StoreAddress key) {
-        return new Resource(Wire.RESOURCE_DATA, key.scope, key.userId, key.owner, key.namespace);
+        return new Resource(DATA, key.scope, key.userId, key.owner, "");
     }
     /** 解析事件 scope/owner/topic，并把 userId 绑定到真实调用方。 */
     static Resource event(Bundle b, int callerUserId) {
@@ -126,32 +124,14 @@ final class AccessController {
         String owner = b.getString(Wire.OWNER), topic = b.getString(Wire.TOPIC);
         if (scope < Wire.DEVICE_DE || scope > Wire.USER_CE || !StoreAddress.name(owner, 180)
                 || !StoreAddress.name(topic, 180)) throw new IllegalArgumentException("event address");
-        return new Resource(Wire.RESOURCE_EVENT, scope, callerUserId, owner, topic);
+        return new Resource(EVENT, scope, callerUserId, owner, topic);
     }
-    /** 解析 grant/revoke 请求中的资源种类和名称。 */
-    static Resource grantResource(Bundle b, int callerUserId) {
-        if (b == null) throw new IllegalArgumentException("missing resource");
-        int type = b.getInt(Wire.RESOURCE), scope = b.getInt(Wire.SCOPE);
-        String owner = b.getString(Wire.OWNER);
-        String name = b.getString(type == Wire.RESOURCE_DATA ? Wire.NAMESPACE : Wire.TOPIC);
-        if ((type != Wire.RESOURCE_DATA && type != Wire.RESOURCE_EVENT)
-                || scope < Wire.DEVICE_DE || scope > Wire.USER_CE
-                || !StoreAddress.name(owner, 180) || !StoreAddress.name(name, 180))
-            throw new IllegalArgumentException("invalid resource");
-        return new Resource(type, scope, callerUserId, owner, name);
-    }
-    /**
-     * 将常规资源名绑定到 owner 包名，并预留 sys.* 给平台代码；
-     * 这样普通包不能借自定义名称伪装成别的包或系统资源。
-     */
     private static boolean validPrefix(Resource resource) {
-        // sys.* 虽通过名称校验，仍会在 available 中要求平台身份。
-        if (resource.name.startsWith("sys.")) return true;
-        if (resource.type == Wire.RESOURCE_DATA)
-            return resource.name.equals("share." + resource.owner)
-                    || resource.name.equals("app." + resource.owner);
-        return resource.name.startsWith("events." + resource.owner + "/");
+        return resource.type == DATA ? resource.name.isEmpty()
+                : resource.name.startsWith("sys.")
+                    || resource.name.startsWith("events." + resource.owner + "/");
     }
+
     private static final class AndroidIdentities implements Identities {
         private final Context context;
 
@@ -211,6 +191,18 @@ final class AccessController {
             return withSystemIdentity(() -> readSignature(packageName, userId));
         }
 
+        @Override public String signatureInAnyUser(String packageName) {
+            return withSystemIdentity(() -> {
+                UserManager users = context.getSystemService(UserManager.class);
+                if (users == null) return null;
+                for (UserHandle user : users.getUserHandles(true)) {
+                    String digest = readSignature(packageName, user.getIdentifier());
+                    if (digest != null) return digest;
+                }
+                return null;
+            });
+        }
+
         private String readSignature(String packageName, int userId) {
             try {
                 PackageInfo info = packages(userId).getPackageInfo(packageName,
@@ -264,35 +256,41 @@ final class AccessController {
             TLog.w(TAG, "unavailable uid=" + uid + " scope=" + r.scope);
             return Wire.PERMISSION_DENIED;
         }
-        int granted = namespaceRights(r, identities.packagesForUid(uid));
+        String[] packages = identities.packagesForUid(uid);
+        if (ownerSignature(r, uid, packages) != null) return Wire.OK;
+        int granted = directRights(r, null, uid, r.userId, packages);
         return (granted & required) == required ? Wire.OK : Wire.PERMISSION_DENIED;
     }
 
-    private int namespaceRights(Resource r, String[] packages) {
+    private String ownerSignature(Resource r, int uid, String[] packages) {
+        if (packages == null || !Arrays.asList(packages).contains(r.owner)) return null;
+        if (r.type == DATA && identities.installedAppFlags(
+                r.owner, uid, UserHandle.getUserId(uid)) == null) return null;
+        String current = identities.signature(r.owner, r.userId);
+        String original = owners.get(r.id());
+        return original == null || original.equals(current) ? current : null;
+    }
+
+    private static GrantKey grantKey(Resource r, StoreAddress key, String target) {
+        return new GrantKey(r.id(), key == null ? 0 : key.store,
+                key == null ? "" : key.key, target);
+    }
+
+    private int directRights(Resource r, StoreAddress key, int uid, int user, String[] packages) {
         if (packages == null) return 0;
-        String resourceId = r.id();
-        String ownerDigest = owners.get(resourceId);
-        int granted = 0;
+        int rights = 0;
         for (String pkg : packages) {
-            if (pkg.equals(r.owner)) {
-                String current = identities.signature(pkg, r.userId);
-                if (current != null && (ownerDigest == null || current.equals(ownerDigest))) {
-                    return allowedRights(r.type);
-                }
-            }
-            Grant direct = grants.get(resourceId + "|" + pkg);
-            if (direct != null && direct.signature.equals(identities.signature(pkg, r.userId))) {
-                granted |= direct.rights;
-            }
+            Grant rule = grants.get(grantKey(r, key, pkg));
+            if (rule == null) continue;
+            if (key != null && identities.installedAppFlags(pkg, uid, user) == null) continue;
+            if (rule.signature.equals(identities.signature(pkg, user))) rights |= rule.rights;
         }
-        return granted;
+        return rights;
     }
 
     private static boolean validAudience(Resource r, int audience) {
-        if (r.type != Wire.RESOURCE_DATA || !validPrefix(r)) return false;
-        if (audience == Wire.AUDIENCE_DEVICE_ALL) {
-            return r.scope == Wire.DEVICE_DE && r.name.equals("share." + r.owner);
-        }
+        if (r.type != DATA) return false;
+        if (audience == Wire.AUDIENCE_DEVICE_ALL) return r.scope == Wire.DEVICE_DE;
         return (r.scope == Wire.USER_DE || r.scope == Wire.USER_CE)
                 && (audience == Wire.AUDIENCE_USER_ALL
                     || audience == Wire.AUDIENCE_USER_PREINSTALLED
@@ -312,7 +310,6 @@ final class AccessController {
 
         // 设备级始终核对 User 0 的 owner，消费者安装状态则按自己的用户确认。
         String original = owners.get(r.id());
-        if (original == null || !original.equals(identities.signature(r.owner, r.userId))) return 0;
         int granted = 0;
         for (String pkg : packages) {
             Integer flags = identities.installedAppFlags(pkg, uid, user);
@@ -336,17 +333,18 @@ final class AccessController {
         if (key.userId != (key.scope == Wire.DEVICE_DE ? 0 : user)) return Wire.PERMISSION_DENIED;
         if (r.scope == Wire.USER_CE && !identities.userUnlocked(user)) return Wire.LOCKED;
 
-        boolean normalAccess = available(r, uid);
-        // 普通 App 只能通过明确的设备级 share Key 规则跨过平台门槛。
-        if (!normalAccess && !validAudience(r, Wire.AUDIENCE_DEVICE_ALL)) {
+        String[] packages = identities.packagesForUid(uid);
+        if (available(r, uid) && ownerSignature(r, uid, packages) != null) {
+            return createOwner ? ensureOwner(uid, r) : Wire.OK;
+        }
+
+        // 普通 App 只能用该完整 Key 的显式规则访问 DEVICE_DE。
+        // 每次访问和通知投递重新核对 owner 签名，防止历史规则随包名转移。
+        String original = owners.get(r.id());
+        if (original == null || !original.equals(identities.signature(r.owner, r.userId))) {
             return Wire.PERMISSION_DENIED;
         }
-        if (createOwner && normalAccess && uidOwns(uid, r.owner)) {
-            int status = ensureOwner(uid, r);
-            if (status != Wire.OK) return status;
-        }
-        String[] packages = identities.packagesForUid(uid);
-        int granted = normalAccess ? namespaceRights(r, packages) : 0;
+        int granted = directRights(r, key, uid, user, packages);
         if ((granted & required) == required) return Wire.OK;
         granted |= audienceRights(key, r, uid, user, packages);
         return (granted & required) == required ? Wire.OK : Wire.PERMISSION_DENIED;
@@ -358,19 +356,17 @@ final class AccessController {
         if (unavailable) return Wire.STORAGE_UNAVAILABLE;
         Resource r = data(key);
         int user = UserHandle.getUserId(uid);
-        if (!validAudience(r, audience) || !validRights(Wire.RESOURCE_DATA, rights)) {
+        if (!validAudience(r, audience) || !validRights(DATA, rights)) {
             return Wire.BAD_REQUEST;
         }
         if (key.userId != (key.scope == Wire.DEVICE_DE ? 0 : user)) return Wire.PERMISSION_DENIED;
         if (r.scope == Wire.USER_CE && !identities.userUnlocked(user)) return Wire.LOCKED;
-        if (!available(r, uid) || !uidOwns(uid, r.owner)) return Wire.PERMISSION_DENIED;
+        if (!available(r, uid)) return Wire.PERMISSION_DENIED;
+        String digest = ownerSignature(r, uid, identities.packagesForUid(uid));
+        if (digest == null) return Wire.PERMISSION_DENIED;
 
         String ownerId = r.id();
         String priorOwner = owners.get(ownerId);
-        String digest = identities.signature(r.owner, r.userId);
-        if (digest == null || (priorOwner != null && !priorOwner.equals(digest))) {
-            return Wire.PERMISSION_DENIED;
-        }
         AudienceKey rule = new AudienceKey(key, audience);
         int prior = audienceGrants.getOrDefault(rule, 0);
         int next = grant ? prior | rights : prior & ~rights;
@@ -450,56 +446,69 @@ final class AccessController {
         }
         return check(uid, r, right);
     }
-    /**
-     * 仅资源 owner 可变更 grant。限制 rights 与资源类型匹配，避免把事件权限
-     * 当作数据权限解释；授权绑定目标当前签名，避免同名包换签名后继承权限。
-     * 持久化失败时恢复旧内存记录，防止进程内 ACL 与文件快照分叉。
-     */
-    synchronized int changeGrant(int uid, Resource r, String target, int rights, boolean grant) {
+    synchronized int changeDataGrant(int uid, StoreAddress key, String target, int rights,
+                                     boolean grant) {
+        return changeGrant(uid, data(key), key, target, rights, grant);
+    }
+
+    synchronized int changeEventGrant(int uid, Resource topic, String target, int rights,
+                                      boolean grant) {
+        return changeGrant(uid, topic, null, target, rights, grant);
+    }
+
+    private int changeGrant(int uid, Resource r, StoreAddress key, String target, int rights,
+                            boolean grant) {
         if (unavailable) return Wire.STORAGE_UNAVAILABLE;
-        TLog.d(TAG, (grant ? "grant" : "revoke") + " uid=" + uid + " " + TLog.address(r)
-                + " target=" + target + " rights=" + rights);
-        // 1. 权限位先按数据/事件资源类型收窄，拒绝混用和空操作。
         if (!validRights(r.type, rights) || !StoreAddress.name(target, 180)) {
-            TLog.w(TAG, "grant rejected uid=" + uid + " reason=invalid_request");
             return Wire.BAD_REQUEST;
         }
-        // 2. 只有资源真实 owner 能修改 grant；目标包不能自己给自己提权。
-        int owner = ensureOwner(uid, r);
-        if (owner != Wire.OK) {
-            TLog.w(TAG, "grant rejected uid=" + uid + " status=" + owner);
-            return owner;
+        int user = UserHandle.getUserId(uid);
+        if (r.scope != Wire.DEVICE_DE && r.userId != user) return Wire.PERMISSION_DENIED;
+        if (r.scope == Wire.USER_CE && !identities.userUnlocked(user)) return Wire.LOCKED;
+        if (!available(r, uid)) return Wire.PERMISSION_DENIED;
+        String ownerDigest = ownerSignature(r, uid, identities.packagesForUid(uid));
+        if (ownerDigest == null) return Wire.PERMISSION_DENIED;
+        String ownerId = r.id();
+        String priorOwner = owners.get(ownerId);
+
+        GrantKey id = grantKey(r, key, target);
+        Grant prior = grants.get(id);
+        String digest;
+        int next;
+        if (grant) {
+            // DEVICE_DE 数据共用一个地址，目标包也可能只安装在次用户。
+            digest = key != null && r.scope == Wire.DEVICE_DE
+                    ? identities.signatureInAnyUser(target) : identities.signature(target, r.userId);
+            if (digest == null) return Wire.NOT_FOUND;
+            next = rights | (prior != null && digest.equals(prior.signature) ? prior.rights : 0);
+            if (prior != null && next == prior.rights && digest.equals(prior.signature)) {
+                return Wire.OK;
+            }
+        } else {
+            if (prior == null || (prior.rights & rights) == 0) return Wire.OK;
+            digest = prior.signature;
+            next = prior.rights & ~rights;
         }
-        // 3. 授权前取目标包当前签名；包不存在时不创建待未来安装时生效的授权。
-        String id = r.id() + "|" + target; Grant prior = grants.get(id);
-        // digest 是目标包当前签名；重装并换签名的同名包不继承 prior.rights。
-        String digest = grant ? identities.signature(target, r.userId) : null;
-        if (grant && digest == null) {
-            TLog.d(TAG, "grant target not found target=" + target);
-            return Wire.NOT_FOUND;
-        }
-        if (grant && prior == null && grants.size() >= MAX_GRANTS) return Wire.QUOTA_EXCEEDED;
-        // 同名包换签名重装后不能继承旧权限位，只能使用本次重新授予的位。
-        if (grant) grants.put(id, new Grant(digest,
-                rights | (prior != null && digest.equals(prior.signature) ? prior.rights : 0)));
-        else if (prior != null) {
-            int remaining = prior.rights & ~rights;
-            if (remaining == 0) grants.remove(id); else grants.put(id, new Grant(prior.signature, remaining));
-        }
-        // 持久化失败时用 prior 恢复，避免进程内 ACL 和磁盘状态分叉。
+        if ((prior == null && grants.size() >= MAX_GRANTS)
+                || (priorOwner == null && owners.size() >= MAX_OWNERS)) return Wire.QUOTA_EXCEEDED;
+
+        // 首次签名绑定与授权只提交一次，失败时两者一起回滚。
+        if (priorOwner == null) owners.put(ownerId, ownerDigest);
+        if (next == 0) grants.remove(id);
+        else grants.put(id, new Grant(digest, next));
         try {
             persist();
-            TLog.d(TAG, "grant record persisted target=" + target + " rights=" + rights);
             return Wire.OK;
-        }
-        catch (RuntimeException e) {
-            TLog.e(TAG, "grant persist failed type=" + e.getClass().getSimpleName());
-            if (prior == null) grants.remove(id); else grants.put(id, prior);
+        } catch (RuntimeException e) {
+            if (priorOwner == null) owners.remove(ownerId);
+            if (prior == null) grants.remove(id);
+            else grants.put(id, prior);
             return Wire.STORAGE_UNAVAILABLE;
         }
     }
+
     private static int allowedRights(int type) {
-        return type == Wire.RESOURCE_DATA ? Wire.READ | Wire.WRITE | Wire.DELETE | Wire.OBSERVE
+        return type == DATA ? Wire.READ | Wire.WRITE | Wire.DELETE | Wire.OBSERVE
                 : Wire.PUBLISH | Wire.SUBSCRIBE;
     }
 
@@ -508,8 +517,8 @@ final class AccessController {
     }
 
     private static int resourceType(String id) {
-        if (id.startsWith(Wire.RESOURCE_DATA + "|")) return Wire.RESOURCE_DATA;
-        if (id.startsWith(Wire.RESOURCE_EVENT + "|")) return Wire.RESOURCE_EVENT;
+        if (id.startsWith(DATA + "|")) return DATA;
+        if (id.startsWith(EVENT + "|")) return EVENT;
         return 0;
     }
 
@@ -519,7 +528,8 @@ final class AccessController {
         String[] parts = id.split("\\|", -1);
         int type = resourceType(id);
         if (type == 0 || parts.length != 5 || !StoreAddress.name(parts[3], 180)
-                || !StoreAddress.name(parts[4], 180)) return null;
+                || (type == DATA ? !parts[4].isEmpty()
+                        : !StoreAddress.name(parts[4], 180))) return null;
         try {
             int scope = Integer.parseInt(parts[1]);
             int user = Integer.parseInt(parts[2]);
@@ -556,8 +566,7 @@ final class AccessController {
         try (DataInputStream in = new DataInputStream(new CheckedInputStream(
                 new BufferedInputStream(new FileInputStream(committed)), crc))) {
             if (in.readInt() != MAGIC) throw new IOException("ACL magic");
-            int version = in.readInt();
-            if (version != VERSION_V1 && version != VERSION_V2) throw new IOException("ACL version");
+            if (in.readInt() != VERSION) throw new IOException("ACL version");
             int count = in.readInt();
             if (count < 0 || count > MAX_OWNERS) throw new IOException("ACL owner count");
             for (int i = 0; i < count; i++) {
@@ -571,22 +580,25 @@ final class AccessController {
             count = in.readInt();
             if (count < 0 || count > MAX_GRANTS) throw new IOException("ACL grant count");
             for (int i = 0; i < count; i++) {
-                String id = in.readUTF(), digest = in.readUTF();
+                String ownerId = in.readUTF();
+                int store = in.readInt();
+                String key = in.readUTF(), target = in.readUTF(), digest = in.readUTF();
                 int rights = in.readInt();
-                int targetStart = id.lastIndexOf('|') + 1;
-                int type = resourceType(id);
-                if (type == 0 || targetStart == 0 || !owners.containsKey(id.substring(0, targetStart - 1))
-                        || !StoreAddress.name(id.substring(targetStart), 180) || !validDigest(digest)
+                int type = resourceType(ownerId);
+                boolean validKey = type == DATA
+                        ? store >= Wire.MEMORY && store <= Wire.DATABASE && StoreAddress.name(key, 180)
+                        : store == 0 && key.isEmpty();
+                if (!owners.containsKey(ownerId) || !validKey
+                        || !StoreAddress.name(target, 180) || !validDigest(digest)
                         || !validRights(type, rights)
-                        || grants.putIfAbsent(id, new Grant(digest, rights)) != null) {
+                        || grants.putIfAbsent(new GrantKey(ownerId, store, key, target),
+                                new Grant(digest, rights)) != null) {
                     throw new IOException("invalid or duplicate ACL grant");
                 }
             }
-            if (version == VERSION_V2) {
-                loadAudienceGrants(in);
-                long expected = crc.getValue(); // 校验和只覆盖快照正文，不包括尾部自身。
-                if (in.readLong() != expected) throw new IOException("ACL checksum mismatch");
-            }
+            loadAudienceGrants(in);
+            long expected = crc.getValue(); // 校验和只覆盖快照正文，不包括尾部自身。
+            if (in.readLong() != expected) throw new IOException("ACL checksum mismatch");
             if (in.read() != -1) throw new IOException("trailing ACL data");
         }
     }
@@ -599,11 +611,11 @@ final class AccessController {
             String key = in.readUTF();
             int audience = in.readInt(), rights = in.readInt();
             Resource r = owners.containsKey(ownerId) ? parseOwnerId(ownerId) : null;
-            if (r == null || !validAudience(r, audience) || !validRights(Wire.RESOURCE_DATA, rights)
+            if (r == null || !validAudience(r, audience) || !validRights(DATA, rights)
                     || store < Wire.MEMORY || store > Wire.DATABASE || !StoreAddress.name(key, 180)) {
                 throw new IOException("invalid ACL audience grant");
             }
-            StoreAddress address = new StoreAddress(store, r.scope, r.userId, r.owner, r.name, key);
+            StoreAddress address = new StoreAddress(store, r.scope, r.userId, r.owner, key);
             if (audienceGrants.putIfAbsent(new AudienceKey(address, audience), rights) != null) {
                 throw new IOException("duplicate ACL audience grant");
             }
@@ -622,11 +634,14 @@ final class AccessController {
             raw = file.startWrite();
             DataOutputStream out = new DataOutputStream(new CheckedOutputStream(
                     new BufferedOutputStream(raw), crc));
-            out.writeInt(MAGIC); out.writeInt(VERSION_V2); out.writeInt(owners.size());
+            out.writeInt(MAGIC); out.writeInt(VERSION); out.writeInt(owners.size());
             for (Map.Entry<String, String> e : owners.entrySet()) { out.writeUTF(e.getKey()); out.writeUTF(e.getValue()); }
             out.writeInt(grants.size());
-            for (Map.Entry<String, Grant> e : grants.entrySet()) {
-                out.writeUTF(e.getKey()); out.writeUTF(e.getValue().signature); out.writeInt(e.getValue().rights);
+            for (Map.Entry<GrantKey, Grant> e : grants.entrySet()) {
+                GrantKey id = e.getKey();
+                out.writeUTF(id.ownerId()); out.writeInt(id.store());
+                out.writeUTF(id.key()); out.writeUTF(id.target());
+                out.writeUTF(e.getValue().signature); out.writeInt(e.getValue().rights);
             }
             out.writeInt(audienceGrants.size());
             for (Map.Entry<AudienceKey, Integer> entry : audienceGrants.entrySet()) {

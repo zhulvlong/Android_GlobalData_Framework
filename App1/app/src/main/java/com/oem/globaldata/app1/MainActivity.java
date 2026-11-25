@@ -19,8 +19,8 @@ public final class MainActivity extends Activity {
         binding = ActivityMainBinding.inflate(getLayoutInflater());
         setContentView(binding.getRoot());
         binding.mode.setText("当前模式：" + (BuildConfig.SYSTEM_SCOPE
-                ? "平台签名 / DEVICE_DE / sys.device"
-                : "普通 App / USER_CE / App1 共享 namespace"));
+                ? "平台变体 / DEVICE_DE"
+                : "普通 App / USER_CE / App1 的 Key"));
         binding.deviceDataAllButton.setOnClickListener(v -> open(DeviceDataAllDemoActivity.class));
         binding.userDataAllButton.setOnClickListener(v -> open(UserDataAllDemoActivity.class));
         binding.userDataPreinstalledAppsButton.setOnClickListener(v -> open(UserDataPreinstalledAppsDemoActivity.class));

@@ -1,7 +1,7 @@
 package com.oem.globaldata.ipc;
 
 /**
- * 客户端与系统服务共用的 v1 协议常量。数值和 Bundle 字段名已经成为线缆格式，
+ * 客户端与系统服务共用的 v2 协议常量。数值和 Bundle 字段名已经成为线缆格式，
  * 修改它们会让旧 SDK 和旧系统镜像对同一请求产生不同解释。
  */
 public final class Wire {
@@ -9,20 +9,20 @@ public final class Wire {
     private Wire() {}
 
     /** 主版本不同则拒绝连接，防止误解读请求结构。 */
-    public static final int PROTOCOL_MAJOR = 1;
+    public static final int PROTOCOL_MAJOR = 2;
     /** 服务端次版本至少达到此值，客户端才认为所需能力齐备。 */
-    public static final int PROTOCOL_MINOR = 2;
+    public static final int PROTOCOL_MINOR = 0;
     /** 单个值的 payload 上限为 64 KiB，客户端和服务端都会检查。 */
     public static final int MAX_PAYLOAD = 64 * 1024;
 
     /** system_server 内存暂存，服务进程重启后值消失。 */
     public static final int MEMORY = 1;
-    /** 每个 namespace 的 AtomicFile 快照。 */
+    /** 每个 owner 地址 的 AtomicFile 快照。 */
     public static final int FILE = 2;
     /** SQLite KV 存储，值与版本在同一事务内更新。 */
     public static final int DATABASE = 3;
 
-    /** 设备级 DE 地址，仅系统 UID 或平台签名 UID 可访问。 */
+    /** 设备级 DE 地址，平台 owner 可为指定 Key 授权。 */
     public static final int DEVICE_DE = 1;
     /** 调用方所属 Android 用户的 DE 地址，可供解锁前的受控组件使用。 */
     public static final int USER_DE = 2;
@@ -57,11 +57,11 @@ public final class Wire {
     /** 服务端有界任务队列已满。 */
     public static final int BUSY = 9;
 
-    /** 读取数据 namespace 中的值。 */
+    /** 读取指定 Key 上的值。 */
     public static final int READ = 1;
-    /** 在数据 namespace 中创建或更新值。 */
+    /** 在指定 Key 上创建或更新值。 */
     public static final int WRITE = 2;
-    /** 删除数据 namespace 中的值。 */
+    /** 删除指定 Key 上的值。 */
     public static final int DELETE = 4;
     /** 观察单个 Key 的变化；监听后读当前值还需 READ。 */
     public static final int OBSERVE = 8;
@@ -77,10 +77,6 @@ public final class Wire {
     /** 本次删除了已存在的值。 */
     public static final int DELETE_OP = 3;
 
-    /** ACL 资源是数据 namespace，授权覆盖其中各 Key 和 Store。 */
-    public static final int RESOURCE_DATA = 1;
-    /** ACL 资源是完整事件 topic。 */
-    public static final int RESOURCE_EVENT = 2;
 
     /** 服务端支持内存后端。 */
     public static final long FEATURE_MEMORY = 1L;
@@ -116,14 +112,10 @@ public final class Wire {
     public static final String SCOPE = "scope";
     /** 服务端核对的资源 owner 包名，String。 */
     public static final String OWNER = "owner";
-    /** 数据 ACL 分组，String。 */
-    public static final String NAMESPACE = "namespace";
-    /** namespace 内的单条数据名，String。 */
+    /** 单条数据名，String。 */
     public static final String KEY = "key";
     /** 无载荷事件的完整主题名，String。 */
     public static final String TOPIC = "topic";
-    /** 授权资源类型，RESOURCE_DATA 或 RESOURCE_EVENT。 */
-    public static final String RESOURCE = "resource";
     /** Codec 的稳定业务类型标识，String。 */
     public static final String SCHEMA_ID = "schemaId";
     /** 值实际写入时使用的 schema 版本，int。 */
@@ -136,7 +128,7 @@ public final class Wire {
     public static final String VALUE = "value";
     /** read 响应是否含值，boolean。 */
     public static final String PRESENT = "present";
-    /** 值版本，或不存在时 namespace 的版本高水位，long。 */
+    /** 值版本，或不存在时 同一 owner 地址的版本高水位，long。 */
     public static final String REVISION = "revision";
     /** 本次服务进程实例标识，String。 */
     public static final String EPOCH = "epoch";

@@ -6,7 +6,7 @@ import com.oem.globaldata.client.DataKey;
 import com.oem.globaldata.contracts.DeviceDataKeys;
 import com.oem.globaldata.ipc.Wire;
 
-/** App1 写入 文件持久化 · boolean 通知开关；授权属于 App1 的共享 namespace。 */
+/** App1 写入 文件持久化 · boolean 通知开关。 */
 public final class FileBooleanDemoActivity extends DemoActivityBase {
     private ActivityFileBooleanDemoBinding binding;
     /** App1/App2 从同一 Contracts AAR 取得完全相同的数据地址。 */

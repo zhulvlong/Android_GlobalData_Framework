@@ -2,7 +2,7 @@ package com.oem.globaldata.client;
 
 /** 成功写入或删除后的版本信息，可供界面展示或后续业务决策。 */
 public final class WriteResult {
-    /** 本次成功操作后的 namespace 单调递增版本。 */
+    /** 本次成功操作产生的版本，在同一 Store、Scope 和 owner 地址内单调递增。 */
     public final long revision;
     /** 执行本次操作的服务实例标识。 */
     public final String serviceEpoch;

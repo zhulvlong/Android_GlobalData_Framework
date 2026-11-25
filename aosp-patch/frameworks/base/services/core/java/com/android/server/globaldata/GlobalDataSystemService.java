@@ -31,7 +31,7 @@ public final class GlobalDataSystemService extends SystemService {
     private static final String TAG = "GlobalDataSystemService";
 
     /**
-     * 本次服务实例标识。revision 只在各 namespace 内递增，重启后内存后端还会归零；
+     * 本次服务实例标识。revision 只在各 Store/Scope/User/owner 地址内递增，重启后内存后端还会归零；
      * 单靠 revision 无法区分旧服务快照，因此条件操作还要比对 epoch。
      */
     private final String epoch = UUID.randomUUID().toString();
@@ -43,7 +43,7 @@ public final class GlobalDataSystemService extends SystemService {
             TimeUnit.SECONDS, new ArrayBlockingQueue<>(128));
     /** MEMORY：进程内暂存，system_server 重启后清空。 */
     private final MemoryBackend memory = new MemoryBackend();
-    /** FILE：每个 namespace 使用有界 AtomicFile 快照。 */
+    /** FILE：每个 owner 地址使用有界 AtomicFile 快照。 */
     private final FileBackend file = new FileBackend();
     /** DATABASE：按 scope/user 分库的 SQLite 键值存储。 */
     private final DatabaseBackend database = new DatabaseBackend();
@@ -236,37 +236,51 @@ public final class GlobalDataSystemService extends SystemService {
                 });
             } catch (Exception e) { return failure(e); }
         }
-        /** 授权记录在存储队列中提交，避免多个 Binder 线程并行进行 ACL 文件写入。 */
-        @Override public Bundle grant(Bundle resource, String targetPackage, int rights) {
-            int uid = Binder.getCallingUid(), user = UserHandle.getUserId(uid);
+        @Override public Bundle grantData(Bundle request, String targetPackage, int rights) {
+            return changeDataGrant(request, targetPackage, rights, true);
+        }
+
+        @Override public Bundle revokeData(Bundle request, String targetPackage, int rights) {
+            return changeDataGrant(request, targetPackage, rights, false);
+        }
+
+        private Bundle changeDataGrant(Bundle request, String target, int rights, boolean grant) {
+            int uid = Binder.getCallingUid();
             try {
-                // 1. 仅解析资源种类/地址；真正的 owner、目标签名和 rights 校验在 ACL 中完成。
-                AccessController.Resource r = AccessController.grantResource(resource, user);
-                TLog.d(TAG, "grant uid=" + uid + " " + TLog.address(r)
-                        + " target=" + targetPackage + " rights=" + rights);
-                // 2. 在存储队列中修改并持久化授权，响应以 ACL 的实际提交结果为准。
+                StoreAddress key = StoreAddress.parse(request, UserHandle.getUserId(uid));
                 return io(() -> {
-                    int result = acl.changeGrant(uid, r, targetPackage, rights, true);
-                    TLog.d(TAG, "grant result status=" + result + " " + TLog.address(r));
+                    int result = acl.changeDataGrant(uid, key, target, rights, grant);
+                    TLog.d(TAG, (grant ? "grantData" : "revokeData") + " uid=" + uid
+                            + " " + TLog.address(key) + " target=" + target
+                            + " rights=" + rights + " status=" + result);
                     return status(result);
                 });
             } catch (Exception e) { return failure(e); }
         }
-        /** owner 撤销目标包的指定权限位；不改变后端中的业务值。 */
-        @Override public Bundle revoke(Bundle resource, String targetPackage, int rights) {
-            int uid = Binder.getCallingUid(), user = UserHandle.getUserId(uid);
+
+        @Override public Bundle grantEvent(Bundle request, String targetPackage, int rights) {
+            return changeEventGrant(request, targetPackage, rights, true);
+        }
+
+        @Override public Bundle revokeEvent(Bundle request, String targetPackage, int rights) {
+            return changeEventGrant(request, targetPackage, rights, false);
+        }
+
+        private Bundle changeEventGrant(Bundle request, String target, int rights, boolean grant) {
+            int uid = Binder.getCallingUid();
             try {
-                // 与 grant 同样先解析再提交；撤销后投递线程还会重新校验订阅权限。
-                AccessController.Resource r = AccessController.grantResource(resource, user);
-                TLog.d(TAG, "revoke uid=" + uid + " " + TLog.address(r)
-                        + " target=" + targetPackage + " rights=" + rights);
+                AccessController.Resource topic =
+                        AccessController.event(request, UserHandle.getUserId(uid));
                 return io(() -> {
-                    int result = acl.changeGrant(uid, r, targetPackage, rights, false);
-                    TLog.d(TAG, "revoke result status=" + result + " " + TLog.address(r));
+                    int result = acl.changeEventGrant(uid, topic, target, rights, grant);
+                    TLog.d(TAG, (grant ? "grantEvent" : "revokeEvent") + " uid=" + uid
+                            + " " + TLog.address(topic) + " target=" + target
+                            + " rights=" + rights + " status=" + result);
                     return status(result);
                 });
             } catch (Exception e) { return failure(e); }
         }
+
         @Override public Bundle grantDataAudience(Bundle request, int audience, int rights) {
             return changeDataAudience(request, audience, rights, true);
         }

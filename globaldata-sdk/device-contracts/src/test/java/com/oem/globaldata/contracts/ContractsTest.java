@@ -59,7 +59,6 @@ public final class ContractsTest {
             assertEquals(stores[group], key.store);
             assertEquals(Wire.USER_CE, key.scope);
             assertEquals(DeviceDataKeys.APP1_PACKAGE, key.ownerPackage);
-            assertEquals(DeviceDataKeys.SHARED_NAMESPACE, key.namespace);
             assertEquals(names[type], key.key);
             assertEquals(schemas[type], key.codec.schemaId());
             assertSame(codecs[type], key.codec);
@@ -70,7 +69,6 @@ public final class ContractsTest {
             assertEquals(key.store, platform.store);
             assertEquals(key.key, platform.key);
             assertEquals(Wire.DEVICE_DE, platform.scope);
-            assertEquals(DeviceDataKeys.SYSTEM_NAMESPACE, platform.namespace);
             assertEquals(DeviceDataKeys.APP1_PACKAGE, platform.ownerPackage);
             assertSame(codecs[type], platform.codec);
         }
@@ -107,7 +105,6 @@ public final class ContractsTest {
             assertEquals(stores[i], keys[i].store);
             assertEquals(Wire.USER_CE, keys[i].scope);
             assertEquals(DeviceDataKeys.APP1_PACKAGE, keys[i].ownerPackage);
-            assertEquals(DeviceDataKeys.SHARED_NAMESPACE, keys[i].namespace);
             assertEquals("diagnostic_bytes", keys[i].key);
             assertSame(Codecs.BYTES, keys[i].codec);
         }
@@ -153,13 +150,11 @@ public final class ContractsTest {
             assertSame(codecs[type], publicKey.codec);
             assertEquals(Wire.USER_CE, publicKey.scope);
             assertEquals(DeviceDataKeys.APP1_PACKAGE, publicKey.ownerPackage);
-            assertEquals(DeviceDataKeys.SHARED_NAMESPACE, publicKey.namespace);
             assertEquals(publicKey.store, platformKey.store);
             assertEquals(publicKey.key, platformKey.key);
             assertSame(publicKey.codec, platformKey.codec);
             assertEquals(Wire.DEVICE_DE, platformKey.scope);
             assertEquals(DeviceDataKeys.APP1_PACKAGE, platformKey.ownerPackage);
-            assertEquals(DeviceDataKeys.SYSTEM_NAMESPACE, platformKey.namespace);
             addresses.add(publicKey.store + ":" + publicKey.key);
         }
         assertEquals(9, addresses.size());
@@ -189,11 +184,9 @@ public final class ContractsTest {
             assertEquals("enabled_feature_flags", publicKeys[i].key);
             assertEquals(Wire.USER_CE, publicKeys[i].scope);
             assertEquals(DeviceDataKeys.APP1_PACKAGE, publicKeys[i].ownerPackage);
-            assertEquals(DeviceDataKeys.SHARED_NAMESPACE, publicKeys[i].namespace);
             assertSame(DeviceCollections.STRING_SET, publicKeys[i].codec);
             assertEquals(stores[i], platformKeys[i].store);
             assertEquals(Wire.DEVICE_DE, platformKeys[i].scope);
-            assertEquals(DeviceDataKeys.SYSTEM_NAMESPACE, platformKeys[i].namespace);
             assertEquals(publicKeys[i].key, platformKeys[i].key);
             assertSame(DeviceCollections.STRING_SET, platformKeys[i].codec);
             addresses.add(publicKeys[i].store + ":" + publicKeys[i].key);
@@ -214,8 +207,6 @@ public final class ContractsTest {
             assertEquals("display_options", oldMaps[i].key);
             assertSame(DeviceCollections.STRING_LIST, oldLists[i].codec);
             assertSame(DeviceCollections.STRING_MAP, oldMaps[i].codec);
-            assertEquals(DeviceDataKeys.SHARED_NAMESPACE, oldLists[i].namespace);
-            assertEquals(DeviceDataKeys.SHARED_NAMESPACE, oldMaps[i].namespace);
         }
     }
 

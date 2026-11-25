@@ -16,7 +16,7 @@ cp "$GD_PATCH"/frameworks/base/services/core/java/com/android/server/globaldata/
 cp "$GD_PATCH"/frameworks/base/services/core/java/com/oem/globaldata/ipc/* frameworks/base/services/core/java/com/oem/globaldata/ipc/
 ```
 
-三个 AIDL 文件和 `Wire.java` 与 `globaldata-sdk/ipc` 保持完全相同的包名、字段名、数值和方法顺序；当前 SDK 和 ROM 使用协议 1.2，部署前同步更新两侧。复制后可在 Windows 工程目录运行 `verification/verify.ps1` 检查交付源码一致性和 MemoryBackend 的 CAS 语义。
+三个 AIDL 文件和 `Wire.java` 与 `globaldata-sdk/ipc` 保持完全相同的包名、字段名、数值和方法顺序；当前 SDK 和 ROM 使用协议 2.0，部署前同步更新两侧。复制后可在 Windows 工程目录运行 `verification/verify.ps1` 检查交付源码一致性和 MemoryBackend 的 CAS 语义。
 
 Android 16 的 `services.core-sources` 通配符收集新的 `.java`。在 `frameworks/base/services/core/Android.bp` 的 `services.core-aidl-sources` filegroup 的 `srcs` 追加：
 
@@ -69,7 +69,7 @@ cd ..\App2; .\gradlew.bat :app:assemblePublicAppDebug :app:assemblePlatformAppRe
 cd ..; .\verification\verify.ps1
 ```
 
-普通变体：先安装 App2，再安装 App1；App1 点击“授权 App2”，随后双方可操作 `USER_CE` 的 `share.com.oem.globaldata.app1`。平台变体用于 `DEVICE_DE` 的 `sys.device`。**PlatformAppDebug 默认调试签名不具备平台身份**；需要平台签名私钥后，用 `PLATFORM_KEYSTORE`、`PLATFORM_STORE_PASSWORD`、`PLATFORM_KEY_ALIAS`、`PLATFORM_KEY_PASSWORD` 提供 JKS/PKCS12 签名，或对 unsigned release APK 使用目标 ROM 的签名流程。不要把平台私钥提交进本工程。同一包名的普通/平台变体不能并存安装，切换前卸载旧变体。
+普通变体：先安装 App2，再安装 App1；App1 点击“授权 App2”，随后双方可操作 `USER_CE`  中 App1 授权的 Key。平台变体用于 `DEVICE_DE`。**PlatformAppDebug 默认调试签名不具备平台身份**；需要平台签名私钥后，用 `PLATFORM_KEYSTORE`、`PLATFORM_STORE_PASSWORD`、`PLATFORM_KEY_ALIAS`、`PLATFORM_KEY_PASSWORD` 提供 JKS/PKCS12 签名，或对 unsigned release APK 使用目标 ROM 的签名流程。不要把平台私钥提交进本工程。同一包名的普通/平台变体不能并存安装，切换前卸载旧变体。
 
 ## 5. 后端回归测试与设备验收
 
@@ -91,13 +91,13 @@ Windows 端的 `verification/verify.ps1` 检查 IPC 一致性以及 MemoryBacken
 
 本地只能验证 SDK/App 构建和可脱离系统的单元逻辑；重启、签名权限、CE/DE、SELinux、断电与系统服务恢复必须在刷入目标镜像的设备上完成。
 
-### 单 Key 范围授权设备验收
+### 完整 DataKey 授权设备验收
 
-1. 先用平台签名 owner 对 `DEVICE_DE` 的 `share.<ownerPackage>` Key 调用 `grantDeviceDataAll(key, READ | OBSERVE)`。授权完成后，再在 User 0 和其他 Android 用户安装普通签名消费者。两端应读到同一份设备级值，并收到该 Key 的变化提示。
-2. 尝试同 namespace 的其他 Key、其他 Store 的同名 Key 和 `sys.*` Key。普通 App 应被拒绝。只授予 `READ | OBSERVE` 时，写入和删除也应被拒绝。单独授予指定操作后重测。
+1. 将平台签名的 App1 安装到 User 0。将仍使用普通调试签名的 App2 平台变体先安装到次用户，两边都打开「FILE → String 欢迎消息」。在 App1 写入会调用 `grantData` 逐 Key 授权。App2 应能读和监听，同样使用此 Key 的另一个普通包应被拒绝。在 User 0 安装同签名 App2 后，应读到相同的值。
+2. 打开独立的设备级范围授权页面，用平台 owner 调用 `grantDeviceDataAll(key, READ | OBSERVE)`。在两个 Android 用户安装普通消费者，并检查两端看到同一份数据。使用同 owner 的另一个 Key、其他 Store 的同名 Key 或其他 Scope 验证隔离。只授予 `READ | OBSERVE` 时，写入和删除应被拒绝。
 3. 分别测试 `grantUserDataAll`、`grantUserDataPreinstalledApps`、`grantUserDataSameSignatureApps`。先授权再安装消费者，覆盖普通 App、预装及升级 App、相同和不同签名，以及跨用户访问拒绝和 CE 锁定。
 4. 撤销单 Key 的 `OBSERVE` 后再写入，已有订阅不应继续收到该 Key 的提示。分别撤销 `WRITE`、`DELETE` 和 `READ` 后验证对应操作，同时检查仍匹配的定向授权和范围规则。
-5. 保留 v1 ACL 备份，以升级 ROM 读取既有定向授权，再写入一条范围规则并重启。核对旧授权和新规则。Memory 值需要重写，File 和 Database 的值应继续按原地址读取。验证 owner 卸载或签名变更后范围规则不再放行。
+5. 在测试镜像上保留旧路径的测试 File、Database 和 ACL。启动 2.0 后确认服务使用 `globaldata/v2/` 和空授权。写入新数据和规则后重启，验证 File、Database 和 ACL 恢复，Memory 值清空。验证目标包换签名、owner 卸载或换签名后权限失效。
 
 ## 6. GlobalData 调试日志
 

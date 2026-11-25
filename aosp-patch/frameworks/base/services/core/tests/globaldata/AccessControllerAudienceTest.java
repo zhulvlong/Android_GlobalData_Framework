@@ -11,7 +11,6 @@ import android.os.UserHandle;
 import androidx.test.platform.app.InstrumentationRegistry;
 import com.oem.globaldata.ipc.IDataObserver;
 import com.oem.globaldata.ipc.Wire;
-import java.io.DataOutputStream;
 import java.io.File;
 import java.io.IOException;
 import java.nio.ByteBuffer;
@@ -30,15 +29,15 @@ public final class AccessControllerAudienceTest {
     @Rule public final TemporaryFolder temp = new TemporaryFolder(
             InstrumentationRegistry.getInstrumentation().getTargetContext().getCacheDir());
 
-    private static final String OWNER = "com.example.owner", NS = "share." + OWNER;
+    private static final String OWNER = "com.example.owner";
     private static final String OWNER_SIGNATURE = "a".repeat(64), OTHER_SIGNATURE = "b".repeat(64);
     private static final int OWNER_UID = 10001, CLIENT_UID = 10002, ROM_UID = 10003;
     private static final int MATCH_UID = 10004, LATE_UID = 10005;
     private static final int SECONDARY_CLIENT = UserHandle.getUid(10, CLIENT_UID);
     private static final int SECONDARY_OWNER = UserHandle.getUid(10, OWNER_UID);
     private static final int ALL_RIGHTS = Wire.READ | Wire.WRITE | Wire.DELETE | Wire.OBSERVE;
-    private static final StoreAddress USER_KEY = key(Wire.FILE, Wire.USER_DE, 0, NS, "config");
-    private static final StoreAddress DEVICE_KEY = key(Wire.FILE, Wire.DEVICE_DE, 0, NS, "config");
+    private static final StoreAddress USER_KEY = key(Wire.FILE, Wire.USER_DE, 0, "config");
+    private static final StoreAddress DEVICE_KEY = key(Wire.FILE, Wire.DEVICE_DE, 0, "config");
 
     private final FakeIdentities ids = new FakeIdentities();
     private File directory;
@@ -65,6 +64,11 @@ public final class AccessControllerAudienceTest {
             return null;
         }
 
+        @Override public String signatureInAnyUser(String name) {
+            for (App app : apps.values()) if (app.name().equals(name)) return app.signature();
+            return null;
+        }
+
         @Override public String[] packagesForUid(int uid) {
             App app = apps.get(uid);
             return app == null ? null : new String[]{app.name()};
@@ -81,7 +85,8 @@ public final class AccessControllerAudienceTest {
 
     @Before public void setUp() throws IOException {
         directory = temp.newFolder();
-        file = new File(directory, "acl-v1.bin");
+        File v2 = Files.createDirectory(directory.toPath().resolve("v2")).toFile();
+        file = new File(v2, "acl.bin");
         ids.apps.put(OWNER_UID, new App(OWNER, OWNER_SIGNATURE, ApplicationInfo.FLAG_SYSTEM));
         ids.apps.put(CLIENT_UID, new App("com.example.client", OTHER_SIGNATURE, 0));
         ids.apps.put(ROM_UID, new App("com.example.rom", OTHER_SIGNATURE,
@@ -90,10 +95,10 @@ public final class AccessControllerAudienceTest {
         acl = open();
     }
 
-    private AccessController open() { return new AccessController(directory, ids); }
+    private AccessController open() { return new AccessController(new File(directory, "v2"), ids); }
 
-    private static StoreAddress key(int store, int scope, int user, String namespace, String name) {
-        return new StoreAddress(store, scope, user, OWNER, namespace, name);
+    private static StoreAddress key(int store, int scope, int user, String name) {
+        return new StoreAddress(store, scope, user, OWNER, name);
     }
 
     private int change(int uid, StoreAddress key, int audience, int rights, boolean grant) {
@@ -118,15 +123,11 @@ public final class AccessControllerAudienceTest {
         }
 
         for (StoreAddress other : new StoreAddress[]{
-                key(Wire.MEMORY, Wire.DEVICE_DE, 0, NS, "config"),
-                key(Wire.DATABASE, Wire.DEVICE_DE, 0, NS, "config"),
-                key(Wire.FILE, Wire.DEVICE_DE, 0, NS, "neighbor"),
-                key(Wire.FILE, Wire.DEVICE_DE, 0, "sys.device", "config")}) {
+                key(Wire.MEMORY, Wire.DEVICE_DE, 0, "config"),
+                key(Wire.DATABASE, Wire.DEVICE_DE, 0, "config"),
+                key(Wire.FILE, Wire.DEVICE_DE, 0, "neighbor")}) {
             assertEquals(Wire.PERMISSION_DENIED, access(SECONDARY_CLIENT, other, Wire.READ));
         }
-        assertEquals(Wire.BAD_REQUEST, change(OWNER_UID,
-                key(Wire.FILE, Wire.DEVICE_DE, 0, "sys.device", "config"),
-                Wire.AUDIENCE_DEVICE_ALL, Wire.READ, true));
         assertEquals(Wire.PERMISSION_DENIED, change(SECONDARY_CLIENT, DEVICE_KEY,
                 Wire.AUDIENCE_DEVICE_ALL, Wire.READ, false));
 
@@ -137,11 +138,48 @@ public final class AccessControllerAudienceTest {
         assertEquals(Wire.OK, access(SECONDARY_CLIENT, DEVICE_KEY, Wire.READ | Wire.OBSERVE));
     }
 
+    @Test public void deviceDirectGrantUsesExactKeyAndAnInstallationInAnyUser() {
+        String target = "com.example.client";
+        ids.apps.remove(CLIENT_UID);
+        ids.apps.put(SECONDARY_CLIENT, new App(target, OTHER_SIGNATURE, 0));
+        assertEquals(Wire.PERMISSION_DENIED, acl.changeDataGrant(
+                OWNER_UID, DEVICE_KEY, target, Wire.READ, true));
+        ids.ownerPlatform = true;
+        assertEquals(Wire.NOT_FOUND, acl.changeDataGrant(
+                OWNER_UID, DEVICE_KEY, "com.example.absent", Wire.READ, true));
+        assertEquals(Wire.NOT_FOUND, acl.changeDataGrant(
+                OWNER_UID, USER_KEY, target, Wire.READ, true));
+        assertEquals(Wire.OK, acl.changeDataGrant(
+                OWNER_UID, DEVICE_KEY, target, Wire.READ | Wire.OBSERVE, true));
+        assertEquals(Wire.PERMISSION_DENIED, access(CLIENT_UID, DEVICE_KEY, Wire.READ));
+        ids.apps.put(CLIENT_UID, new App(target, OTHER_SIGNATURE, 0));
+
+        acl = open();
+        assertEquals(Wire.OK, access(CLIENT_UID, DEVICE_KEY, Wire.READ | Wire.OBSERVE));
+        assertEquals(Wire.OK, access(SECONDARY_CLIENT, DEVICE_KEY, Wire.READ | Wire.OBSERVE));
+        assertEquals(Wire.PERMISSION_DENIED, access(MATCH_UID, DEVICE_KEY, Wire.READ));
+        assertEquals(Wire.PERMISSION_DENIED, access(CLIENT_UID, DEVICE_KEY, Wire.WRITE));
+        assertEquals(Wire.PERMISSION_DENIED, access(CLIENT_UID, USER_KEY, Wire.READ));
+        assertEquals(Wire.PERMISSION_DENIED, access(CLIENT_UID,
+                key(Wire.MEMORY, Wire.DEVICE_DE, 0, "config"), Wire.READ));
+        assertEquals(Wire.PERMISSION_DENIED, access(CLIENT_UID,
+                key(Wire.FILE, Wire.DEVICE_DE, 0, "neighbor"), Wire.READ));
+
+        assertEquals(Wire.OK, acl.changeDataGrant(
+                OWNER_UID, DEVICE_KEY, target, Wire.OBSERVE, false));
+        assertEquals(Wire.PERMISSION_DENIED, access(SECONDARY_CLIENT, DEVICE_KEY, Wire.OBSERVE));
+        assertEquals(Wire.OK, access(SECONDARY_CLIENT, DEVICE_KEY, Wire.READ));
+        ids.apps.put(SECONDARY_CLIENT, new App(target, OWNER_SIGNATURE, 0));
+        assertEquals(Wire.PERMISSION_DENIED, access(SECONDARY_CLIENT, DEVICE_KEY, Wire.READ));
+        ids.apps.remove(OWNER_UID);
+        assertEquals(Wire.PERMISSION_DENIED, access(CLIENT_UID, DEVICE_KEY, Wire.READ));
+    }
+
     @Test public void userAudiencesAndDirectGrantsCombineWithoutCrossingUsers() {
         assertEquals(Wire.OK, change(OWNER_UID, USER_KEY, Wire.AUDIENCE_USER_ALL, Wire.READ, true));
         assertEquals(Wire.OK, change(OWNER_UID, USER_KEY, Wire.AUDIENCE_USER_PREINSTALLED, Wire.WRITE, true));
         assertEquals(Wire.OK, change(OWNER_UID, USER_KEY, Wire.AUDIENCE_USER_SAME_SIGNATURE, Wire.DELETE, true));
-        assertEquals(Wire.OK, acl.changeGrant(OWNER_UID, AccessController.data(USER_KEY),
+        assertEquals(Wire.OK, acl.changeDataGrant(OWNER_UID, USER_KEY,
                 "com.example.match", Wire.OBSERVE, true));
 
         assertEquals(Wire.OK, access(MATCH_UID, USER_KEY, Wire.READ | Wire.DELETE | Wire.OBSERVE));
@@ -153,7 +191,7 @@ public final class AccessControllerAudienceTest {
 
         ids.apps.put(SECONDARY_OWNER, new App(OWNER, OWNER_SIGNATURE, 0));
         ids.apps.put(SECONDARY_CLIENT, new App("com.example.client", OTHER_SIGNATURE, 0));
-        StoreAddress secondary = key(Wire.FILE, Wire.USER_DE, 10, NS, "config");
+        StoreAddress secondary = key(Wire.FILE, Wire.USER_DE, 10, "config");
         assertEquals(Wire.PERMISSION_DENIED, access(SECONDARY_CLIENT, USER_KEY, Wire.READ));
         assertEquals(Wire.PERMISSION_DENIED, access(SECONDARY_CLIENT, secondary, Wire.READ));
         assertEquals(Wire.OK, change(SECONDARY_OWNER, secondary, Wire.AUDIENCE_USER_ALL, Wire.READ, true));
@@ -171,8 +209,39 @@ public final class AccessControllerAudienceTest {
         assertEquals(Wire.PERMISSION_DENIED, access(MATCH_UID, USER_KEY, Wire.DELETE | Wire.OBSERVE));
     }
 
+    @Test public void exactUserGrantsAndAudiencesStayWithinEachStoreAndKey() {
+        int[] audiences = {Wire.AUDIENCE_USER_ALL, Wire.AUDIENCE_USER_PREINSTALLED,
+                Wire.AUDIENCE_USER_SAME_SIGNATURE};
+        int[] consumers = {CLIENT_UID, ROM_UID, MATCH_UID};
+        String[] targets = {"com.example.client", "com.example.rom", "com.example.match"};
+        for (int store = Wire.MEMORY; store <= Wire.DATABASE; store++) {
+            for (int i = 0; i < audiences.length; i++) {
+                StoreAddress key = key(store, Wire.USER_DE, 0, "shared" + i);
+                for (int otherStore = Wire.MEMORY; otherStore <= Wire.DATABASE; otherStore++) {
+                    if (otherStore == store) continue;
+                    StoreAddress other = key(otherStore, Wire.USER_DE, 0, key.key);
+                    assertEquals(Wire.PERMISSION_DENIED, access(consumers[i], other, Wire.READ));
+                }
+                assertEquals(Wire.OK, acl.changeDataGrant(
+                        OWNER_UID, key, targets[i], Wire.READ | Wire.OBSERVE, true));
+                assertEquals(Wire.OK, change(OWNER_UID, key, audiences[i], Wire.READ, true));
+                assertEquals(Wire.PERMISSION_DENIED, access(consumers[i],
+                        key(store, Wire.USER_DE, 0, "neighbor"), Wire.READ));
+                assertEquals(Wire.PERMISSION_DENIED, access(consumers[i],
+                        key(store, Wire.USER_CE, 0, key.key), Wire.READ));
+                assertEquals(Wire.OK, access(consumers[i], key, Wire.READ | Wire.OBSERVE));
+                assertEquals(Wire.OK, acl.changeDataGrant(
+                        OWNER_UID, key, targets[i], Wire.READ, false));
+                assertEquals(Wire.OK, access(consumers[i], key, Wire.READ | Wire.OBSERVE));
+                assertEquals(Wire.OK, change(OWNER_UID, key, audiences[i], Wire.READ, false));
+                assertEquals(Wire.PERMISSION_DENIED, access(consumers[i], key, Wire.READ));
+                assertEquals(Wire.OK, access(consumers[i], key, Wire.OBSERVE));
+            }
+        }
+    }
+
     @Test public void ceAndPlatformRestrictionsStillApply() {
-        StoreAddress ce = key(Wire.MEMORY, Wire.USER_CE, 0, NS, "config");
+        StoreAddress ce = key(Wire.MEMORY, Wire.USER_CE, 0, "config");
         ids.unlocked = false;
         assertEquals(Wire.LOCKED, change(OWNER_UID, ce, Wire.AUDIENCE_USER_ALL, Wire.READ, true));
         ids.unlocked = true;
@@ -188,10 +257,7 @@ public final class AccessControllerAudienceTest {
         assertEquals(Wire.BAD_REQUEST, change(OWNER_UID, ce, 999, Wire.READ, true));
         assertEquals(Wire.BAD_REQUEST, change(OWNER_UID, ce, Wire.AUDIENCE_USER_ALL, Wire.PUBLISH, true));
         assertEquals(Wire.BAD_REQUEST, change(OWNER_UID, ce, Wire.AUDIENCE_USER_ALL, 0, true));
-        StoreAddress system = key(Wire.DATABASE, Wire.USER_DE, 0, "sys.device", "config");
-        ids.ownerPlatform = true;
-        assertEquals(Wire.OK, change(OWNER_UID, system, Wire.AUDIENCE_USER_ALL, Wire.READ, true));
-        assertEquals(Wire.PERMISSION_DENIED, access(CLIENT_UID, system, Wire.READ));
+        assertEquals(Wire.PERMISSION_DENIED, access(OWNER_UID, DEVICE_KEY, Wire.READ));
     }
 
     @Test public void recordedOwnerIdentityControlsAllAudienceAccess() {
@@ -237,28 +303,21 @@ public final class AccessControllerAudienceTest {
         }
     }
 
-    @Test public void v1UpgradeRetainsDirectGrantsAndV2ChecksumFailsClosed() throws Exception {
-        String ownerId = AccessController.data(USER_KEY).id();
-        try (DataOutputStream out = new DataOutputStream(Files.newOutputStream(file.toPath()))) {
-            out.writeInt(0x47444131);
-            out.writeInt(1);
-            out.writeInt(1);
-            out.writeUTF(ownerId);
-            out.writeUTF(OWNER_SIGNATURE);
-            out.writeInt(1);
-            out.writeUTF(ownerId + "|com.example.client");
-            out.writeUTF(OTHER_SIGNATURE);
-            out.writeInt(Wire.OBSERVE);
-        }
+    @Test public void freshV2IgnoresLegacyAclAndChecksChecksum() throws Exception {
+        File legacy = new File(directory, "acl-v1.bin");
+        byte[] oldBytes = {1, 2, 3};
+        Files.write(legacy.toPath(), oldBytes);
         acl = open();
-        assertEquals(Wire.OK, access(CLIENT_UID, USER_KEY, Wire.OBSERVE));
-        assertEquals(Wire.PERMISSION_DENIED, access(CLIENT_UID, USER_KEY, Wire.READ));
+        assertEquals(Wire.OK, access(OWNER_UID, USER_KEY, Wire.READ));
+        assertEquals(Wire.PERMISSION_DENIED, access(CLIENT_UID, USER_KEY, Wire.OBSERVE));
+        assertEquals(Wire.OK, acl.changeDataGrant(
+                OWNER_UID, USER_KEY, "com.example.client", Wire.OBSERVE, true));
         assertEquals(Wire.OK, change(OWNER_UID, USER_KEY, Wire.AUDIENCE_USER_ALL, Wire.READ, true));
 
         acl = open();
         assertEquals(Wire.OK, access(CLIENT_UID, USER_KEY, Wire.READ | Wire.OBSERVE));
+        assertArrayEquals(oldBytes, Files.readAllBytes(legacy.toPath()));
         byte[] contents = Files.readAllBytes(file.toPath());
-        assertEquals(2, ByteBuffer.wrap(contents).getInt(Integer.BYTES));
         // 修改成另一组合法的权限位，只能靠完整性校验阻止权限扩大。
         ByteBuffer.wrap(contents).putInt(contents.length - Long.BYTES - Integer.BYTES,
                 Wire.READ | Wire.DELETE);
@@ -269,6 +328,26 @@ public final class AccessControllerAudienceTest {
         assertEquals(Wire.STORAGE_UNAVAILABLE, change(OWNER_UID, USER_KEY,
                 Wire.AUDIENCE_USER_ALL, Wire.READ, false));
         assertArrayEquals(contents, Files.readAllBytes(file.toPath()));
+    }
+
+    @Test public void directGrantAndFirstOwnerBindingRollBackTogether() throws Exception {
+        String target = "com.example.client";
+        File pending = new File(file.getPath() + ".new");
+        assertTrue(pending.mkdir());
+        assertEquals(Wire.STORAGE_UNAVAILABLE, acl.changeDataGrant(
+                OWNER_UID, USER_KEY, target, Wire.READ, true));
+        assertFalse(file.exists());
+        assertEquals(Wire.PERMISSION_DENIED, access(CLIENT_UID, USER_KEY, Wire.READ));
+        Files.delete(pending.toPath());
+
+        ids.apps.put(OWNER_UID, new App(OWNER, OTHER_SIGNATURE, ApplicationInfo.FLAG_SYSTEM));
+        assertEquals(Wire.OK, acl.changeDataGrant(OWNER_UID, USER_KEY, target, Wire.READ, true));
+        acl = open();
+        assertEquals(Wire.OK, access(CLIENT_UID, USER_KEY, Wire.READ));
+        ids.apps.put(OWNER_UID, new App(OWNER, OWNER_SIGNATURE, ApplicationInfo.FLAG_SYSTEM));
+        assertEquals(Wire.PERMISSION_DENIED, access(OWNER_UID,
+                key(Wire.MEMORY, Wire.USER_DE, 0, "otherStore"), Wire.WRITE));
+        assertEquals(Wire.PERMISSION_DENIED, access(CLIENT_UID, USER_KEY, Wire.READ));
     }
 
     @Test public void commitFailureRollsBackNewOwnerAndChangesToExistingRules() throws Exception {

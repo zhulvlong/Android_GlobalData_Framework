@@ -9,7 +9,7 @@ import com.oem.globaldata.ipc.Wire;
  * 返回一致的冲突/版本语义，避免换后端后业务代码必须重写并发控制。
  */
 interface Backend {
-    /** 读取当前值；不存在时 Snapshot.revision 是 namespace 版本高水位。 */
+    /** 读取当前值；不存在时 Snapshot.revision 是 同一 owner 地址 版本高水位。 */
     Snapshot read(StoreAddress key);
     /** 按 mode 和 expected 执行写入，返回状态、变更类型及最新版本。 */
     Change write(StoreAddress key, StoredValue value, int mode, long expected);
@@ -23,7 +23,7 @@ interface Backend {
     final class Snapshot {
         /** 当前编码值，或 null。 */
         final StoredValue value;
-        /** 值版本；值不存在时为 namespace 的 highWater。 */
+        /** 值版本；值不存在时为 同一 owner 地址的高水位。 */
         final long revision;
         Snapshot(StoredValue value, long revision) { this.value = value; this.revision = revision; }
     }
@@ -38,15 +38,15 @@ interface Backend {
         }
     }
     /**
-     * 三个后端共用的写入前置条件。不存在时用 namespace 高水位比较 revision，
-     * 防止删除后旧的“不存在”快照在同一 namespace 内通过 CAS（ABA）；
+     * 三个后端共用的写入前置条件。不存在时用 同一 owner 地址 高水位比较 revision，
+     * 防止删除后旧的“不存在”快照在同一 owner 地址内通过 CAS（ABA）；
      * 同一逻辑集中实现也能减少各后端对 UPSERT/IF_ABSENT/IF_REVISION 的分歧。
      */
     static int precondition(StoredValue old, long absentRevision, int mode, long expected) {
         // 1. UPSERT 不使用快照；IF_ABSENT 只看该 Key 是否已有记录。
         if (mode == Wire.UPSERT) return Wire.OK;
         if (mode == Wire.IF_ABSENT) return old == null ? Wire.OK : Wire.CONFLICT;
-        // 2. CAS：有值比对值版本；无值比对 namespace 高水位以识别删除后的变化。
+        // 2. CAS：有值比对值版本；无值比对 同一 owner 地址 高水位以识别删除后的变化。
         if (mode == Wire.IF_REVISION)
             return expected == (old == null ? absentRevision : old.revision) ? Wire.OK : Wire.CONFLICT;
         // 3. 未知模式不交给后端猜测执行，直接作为错误请求返回。

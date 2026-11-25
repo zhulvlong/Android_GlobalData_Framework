@@ -20,7 +20,7 @@ public final class UserDataSameSignatureAppsDemoActivity extends DemoActivityBas
         setContentView(binding.getRoot());
         bindStatus(binding.status);
         binding.title.setText(R.string.audience_user_same_signature_title);
-        binding.address.setText(getString(R.string.audience_user_same_signature_address, key.namespace, key.key));
+        binding.address.setText(getString(R.string.audience_user_same_signature_address, key.ownerPackage, key.key));
         binding.requirements.setText(R.string.audience_user_same_signature_requirements);
         binding.status.setText("先授权，再写入新示例值。");
 

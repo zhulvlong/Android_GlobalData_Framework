@@ -1,7 +1,6 @@
 package com.android.server.globaldata;
 
 import android.os.Environment;
-import android.os.SELinux;
 import android.util.AtomicFile;
 import com.oem.globaldata.ipc.Wire;
 import java.io.ByteArrayInputStream;
@@ -23,10 +22,10 @@ import java.util.function.Function;
 import java.util.zip.CRC32;
 
 /**
- * 文件后端：每个 scope/user/owner/namespace 使用一个有界 AtomicFile 快照。
+ * 文件后端：每个 scope/user/owner 使用一个有界 AtomicFile 快照。
  * 启动后按需加载并缓存；写入先构造新快照，文件原子提交成功后才替换内存缓存。
- * 按 namespace 分文件可限制单次重写和损坏影响范围；保留高水位使重启后的 CAS
- * 仍可识别删除过的记录，而不会把旧快照当作新空 namespace。
+ * 按 owner 地址分文件可限制单次重写和损坏影响范围；保留高水位使重启后的 CAS
+ * 仍可识别删除过的记录，而不会把旧快照当作全新 owner 地址。
  */
 final class FileBackend implements Backend {
     /** 日志二级标识。 */
@@ -40,7 +39,7 @@ final class FileBackend implements Backend {
     private static final int HEADER_BYTES = 20, CHECKSUM_BYTES = Long.BYTES;
     private final Function<StoreAddress, File> directories;
     /** 读命中或成功提交后更新访问顺序，失败写入不改变淘汰顺序。 */
-    private final Map<String, Namespace> cache = new LinkedHashMap<>(16, 0.75f, true);
+    private final Map<String, OwnerSnapshot> cache = new LinkedHashMap<>(16, 0.75f, true);
     private long cachedBytes;
 
     FileBackend() {
@@ -51,7 +50,7 @@ final class FileBackend implements Backend {
         this.directories = directories;
     }
     /** records 保存当前值，highWater 保存成功变更的最大版本。 */
-    private static final class Namespace {
+    private static final class OwnerSnapshot {
         final Map<String, StoredValue> records = new HashMap<>();
         long highWater;
         long cacheBytes;
@@ -61,10 +60,10 @@ final class FileBackend implements Backend {
         File parent = key.scope == Wire.USER_CE
                 ? Environment.getDataSystemCeDirectory(key.userId)
                 : Environment.getDataSystemDeDirectory(key.userId);
-        return new File(parent, "globaldata/file");
+        return new File(parent, "globaldata/v2/file");
     }
     /**
-     * 用 namespaceId 的稳定 SHA-256 摘要命名文件：不同地址映射到不同快照，
+     * 用 ownerId 的稳定 SHA-256 摘要命名文件：不同地址映射到不同快照，
      * 同时避免业务字符串中的分隔符直接进入文件路径。
      */
     private static String hash(String identity) {
@@ -78,35 +77,25 @@ final class FileBackend implements Backend {
     }
     AtomicFile file(StoreAddress key) {
         File dir = directories.apply(key);
-        return new AtomicFile(new File(dir, hash(key.namespaceId()) + ".gdf"));
+        return new AtomicFile(new File(dir, hash(key.ownerId()) + ".gdf"));
     }
 
-    /**
-     * 新建目录后立即恢复 SELinux 标签，否则即使 Unix 权限正确，
-     * system_server 后续也可能因策略拒绝而无法打开文件。
-     */
-    private static void prepareDirectory(File dir) throws IOException {
-        if (!dir.isDirectory() && (!dir.mkdirs() || !SELinux.restoreconRecursive(dir))) {
-            throw new IOException("cannot create file store");
-        }
-    }
-
-    private void cache(StoreAddress key, Namespace snapshot) {
-        String id = key.namespaceId();
-        Namespace previous = cache.remove(id);
+    private void cache(StoreAddress key, OwnerSnapshot snapshot) {
+        String id = key.ownerId();
+        OwnerSnapshot previous = cache.remove(id);
         if (previous != null) cachedBytes -= previous.cacheBytes;
-        snapshot.cacheBytes = StorageQuota.namespaceBytes(key.owner, key.namespace);
+        snapshot.cacheBytes = StorageQuota.ownerBytes(key.owner);
         for (Map.Entry<String, StoredValue> entry : snapshot.records.entrySet()) {
             StoredValue value = entry.getValue();
-            snapshot.cacheBytes += StorageQuota.recordBytes(key.owner, key.namespace,
+            snapshot.cacheBytes += StorageQuota.recordBytes(key.owner,
                     entry.getKey(), value) + value.payload.length;
         }
         // 缓存空间不足只影响命中率，后续读取仍可恢复已提交的快照和版本。
         if (snapshot.cacheBytes > StorageQuota.FILE_CACHE_BYTES) return;
         cache.put(id, snapshot);
         cachedBytes += snapshot.cacheBytes;
-        Iterator<Namespace> oldest = cache.values().iterator();
-        while (cache.size() > StorageQuota.FILE_CACHE_NAMESPACES
+        Iterator<OwnerSnapshot> oldest = cache.values().iterator();
+        while (cache.size() > StorageQuota.FILE_CACHE_OWNERS
                 || cachedBytes > StorageQuota.FILE_CACHE_BYTES) {
             cachedBytes -= oldest.next().cacheBytes;
             oldest.remove();
@@ -117,14 +106,14 @@ final class FileBackend implements Backend {
      * 损坏时抛出存储异常，不把空快照写入缓存；否则下一次写入可能覆盖
      * 本来还能诊断或恢复的旧数据。CRC 用于发现偶发损坏，不承担防篡改认证。
      */
-    private Namespace ns(StoreAddress key, boolean cacheRead) {
-        String id = key.namespaceId();
+    private OwnerSnapshot snapshot(StoreAddress key, boolean cacheRead) {
+        String id = key.ownerId();
         if (cacheRead) {
-            Namespace found = cache.get(id);
+            OwnerSnapshot found = cache.get(id);
             if (found != null) return found;
         } else {
             // 写入可能失败，查找候选快照时先不触发访问顺序更新。
-            for (Map.Entry<String, Namespace> entry : cache.entrySet()) {
+            for (Map.Entry<String, OwnerSnapshot> entry : cache.entrySet()) {
                 if (entry.getKey().equals(id)) return entry.getValue();
             }
         }
@@ -133,8 +122,8 @@ final class FileBackend implements Backend {
         try {
             File committed = StorageFiles.committedSource(file);
             // 未写入的地址没有磁盘快照，避免只读查询挤掉真实缓存。
-            if (committed == null) return new Namespace();
-            Namespace loaded;
+            if (committed == null) return new OwnerSnapshot();
+            OwnerSnapshot loaded;
             try (FileInputStream in = new FileInputStream(committed)) {
                 byte[] bytes = in.readNBytes(StorageQuota.FILE_BYTES + 1);
                 loaded = decode(bytes);
@@ -147,7 +136,7 @@ final class FileBackend implements Backend {
         }
     }
 
-    private static Namespace decode(byte[] bytes) throws IOException {
+    private static OwnerSnapshot decode(byte[] bytes) throws IOException {
         if (bytes.length < HEADER_BYTES + CHECKSUM_BYTES || bytes.length > StorageQuota.FILE_BYTES) {
             throw new IOException("invalid snapshot size");
         }
@@ -159,7 +148,7 @@ final class FileBackend implements Backend {
             if (trailer.readLong() != crc.getValue()) throw new IOException("checksum mismatch");
         }
 
-        Namespace loaded = new Namespace();
+        OwnerSnapshot loaded = new OwnerSnapshot();
         try (DataInputStream input = new DataInputStream(new ByteArrayInputStream(bytes, 0, crcStart))) {
             if (input.readInt() != MAGIC || input.readInt() != VERSION) {
                 throw new IOException("unknown file version");
@@ -196,16 +185,16 @@ final class FileBackend implements Backend {
         return loaded;
     }
     /**
-     * 将完整 namespace 快照及 CRC32 写入 AtomicFile；超过容量则拒绝提交。
+     * 将完整 owner 地址的快照及 CRC32 写入 AtomicFile；超过容量则拒绝提交。
      * 整体快照配合原子替换，使断电或进程退出后只看到旧版或新版，
      * 不把只写入一半的记录集当作成功；失败时调用方也不更新缓存。
      */
-    private boolean commit(StoreAddress key, Namespace next) {
+    private boolean commit(StoreAddress key, OwnerSnapshot next) {
         if (next.records.size() > StorageQuota.FILE_RECORDS) return false;
         AtomicFile atomic = file(key);
         FileOutputStream stream = null;
         try {
-            // 1. 在内存中序列化完整候选快照，保留每个记录和 namespace 的版本。
+            // 1. 在内存中序列化完整候选快照，保留每个记录和 owner 地址的版本。
             ByteArrayOutputStream bytes = new ByteArrayOutputStream();
             DataOutputStream out = new DataOutputStream(bytes);
             out.writeInt(MAGIC); out.writeInt(VERSION); out.writeLong(next.highWater);
@@ -221,7 +210,7 @@ final class FileBackend implements Backend {
             crc.update(content); out.writeLong(crc.getValue()); out.flush();
             // 3. 写文件前就检查配额，超限时旧 AtomicFile 和缓存都不触碰。
             if (bytes.size() > StorageQuota.FILE_BYTES) return false;
-            prepareDirectory(atomic.getBaseFile().getParentFile());
+            StorageFiles.prepareDirectory(atomic.getBaseFile().getParentFile());
             // 4. 只有 finishWrite 成功后，调用方才会把 next 放入缓存。
             stream = atomic.startWrite(); stream.write(bytes.toByteArray());
             StorageFiles.finishWrite(atomic, stream);
@@ -235,19 +224,20 @@ final class FileBackend implements Backend {
             throw new IllegalStateException("file commit failed", e);
         }
     }
-    /** 从已验证的快照返回当前值；缺失时返回 namespace 高水位。 */
+    /** 从已验证的快照返回当前值；缺失时返回 owner 地址的高水位。 */
     @Override public synchronized Snapshot read(StoreAddress key) {
-        Namespace ns = ns(key, true); StoredValue value = ns.records.get(key.key);
+        OwnerSnapshot current = snapshot(key, true);
+        StoredValue value = current.records.get(key.key);
         TLog.d(TAG, "read " + TLog.address(key) + " present=" + (value != null)
-                + " revision=" + (value == null ? ns.highWater : value.revision));
-        return new Snapshot(value, value == null ? ns.highWater : value.revision);
+                + " revision=" + (value == null ? current.highWater : value.revision));
+        return new Snapshot(value, value == null ? current.highWater : value.revision);
     }
     /**
      * 在旧快照上检查 CAS，复制并提交新快照；文件成功后才替换缓存，
      * 避免本次进程读到一个实际未落盘、重启后又消失的“成功写入”。
      */
     @Override public synchronized Change write(StoreAddress key, StoredValue value, int mode, long expected) {
-        Namespace current = ns(key, false); StoredValue old = current.records.get(key.key);
+        OwnerSnapshot current = snapshot(key, false); StoredValue old = current.records.get(key.key);
         // 1. 在复制快照前处理 CAS 冲突，失败不会生成新的文件候选。
         int status = Backend.precondition(old, current.highWater, mode, expected);
         if (status != Wire.OK) {
@@ -258,7 +248,7 @@ final class FileBackend implements Backend {
             return new Change(Wire.QUOTA_EXCEEDED, 0, current.highWater);
         }
         // 2. next 是提交候选，current 在文件成功提交前保持不变。
-        Namespace next = new Namespace(); next.records.putAll(current.records);
+        OwnerSnapshot next = new OwnerSnapshot(); next.records.putAll(current.records);
         next.highWater = Math.incrementExact(current.highWater);
         next.records.put(key.key, value.withRevision(next.highWater));
         if (!commit(key, next)) {
@@ -272,7 +262,7 @@ final class FileBackend implements Backend {
     }
     /** 删除记录后仍持久化递增的 highWater，防止旧 revision 在删除后重新有效。 */
     @Override public synchronized Change delete(StoreAddress key, long expected) {
-        Namespace current = ns(key, false); StoredValue old = current.records.get(key.key);
+        OwnerSnapshot current = snapshot(key, false); StoredValue old = current.records.get(key.key);
         // 1. 不存在或版本不匹配时不创建文件，也不改变缓存。
         if (old == null) {
             TLog.d(TAG, "delete absent " + TLog.address(key) + " revision=" + current.highWater);
@@ -282,8 +272,8 @@ final class FileBackend implements Backend {
             TLog.d(TAG, "delete conflict " + TLog.address(key) + " revision=" + old.revision);
             return new Change(Wire.CONFLICT, 0, old.revision);
         }
-        // 2. 删除记录仍持久化更高的 namespace 版本，用于识别旧 CAS 快照。
-        Namespace next = new Namespace(); next.records.putAll(current.records);
+        // 2. 删除记录仍持久化更高的 owner 地址 版本，用于识别旧 CAS 快照。
+        OwnerSnapshot next = new OwnerSnapshot(); next.records.putAll(current.records);
         next.records.remove(key.key);
         next.highWater = Math.incrementExact(current.highWater);
         // 3. 提交失败保持 current；成功后才原子地切换当前缓存引用。

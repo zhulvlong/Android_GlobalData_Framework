@@ -6,7 +6,7 @@ import com.oem.globaldata.client.DataKey;
 import com.oem.globaldata.contracts.DeviceDataKeys;
 import com.oem.globaldata.ipc.Wire;
 
-/** App1 写入 内存暂存 · String 欢迎消息；授权属于 App1 的共享 namespace。 */
+/** App1 写入 内存暂存 · String 欢迎消息。 */
 public final class MemoryStringDemoActivity extends DemoActivityBase {
     private ActivityMemoryStringDemoBinding binding;
     /** App1/App2 从同一 Contracts AAR 取得完全相同的数据地址。 */

@@ -38,8 +38,8 @@ public final class FileBackendTest {
         return new FileBackend(key -> directory);
     }
 
-    private static StoreAddress key(String namespace, String key) {
-        return new StoreAddress(Wire.FILE, Wire.USER_DE, 0, "com.example.owner", namespace, key);
+    private static StoreAddress key(String ownerSuffix, String key) {
+        return new StoreAddress(Wire.FILE, Wire.USER_DE, 0, "com.example.owner." + ownerSuffix, key);
     }
 
     // Build a v1 fixture directly so the boundary test does not rewrite 8191 whole snapshots.

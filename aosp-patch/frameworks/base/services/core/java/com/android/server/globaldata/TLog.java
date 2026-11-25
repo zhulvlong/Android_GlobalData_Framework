@@ -46,7 +46,7 @@ final class TLog {
     /** 输出数据地址元信息，不包含实际业务值或编码 payload。 */
     static String address(StoreAddress key) {
         return "store=" + key.store + " scope=" + key.scope + " user=" + key.userId
-                + " owner=" + key.owner + " ns=" + key.namespace + " key=" + key.key;
+                + " owner=" + key.owner + " key=" + key.key;
     }
 
     /** 输出 ACL/事件资源地址元信息，不包含签名摘要。 */

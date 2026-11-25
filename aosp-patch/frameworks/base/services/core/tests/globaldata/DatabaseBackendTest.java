@@ -3,6 +3,7 @@ package com.android.server.globaldata;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertThrows;
+import static org.junit.Assert.assertTrue;
 
 import android.database.sqlite.SQLiteDatabase;
 import android.database.sqlite.SQLiteException;
@@ -21,13 +22,15 @@ public final class DatabaseBackendTest {
     @Rule public final TemporaryFolder temp = new TemporaryFolder(
             InstrumentationRegistry.getInstrumentation().getTargetContext().getCacheDir());
 
-    private static final String OWNER = "com.example.owner", NAMESPACE = "share." + OWNER;
+    private static final String OWNER = "com.example.owner";
     private static final StoredValue EMPTY = new StoredValue("s", 1, "r", new byte[0], 0);
     private File directory;
     private DatabaseBackend backend;
 
     @Before public void setUp() throws IOException {
         directory = temp.newFolder();
+        assertTrue(new File(directory, "0").mkdir());
+        assertTrue(new File(directory, "10").mkdir());
         backend = openBackend();
     }
 
@@ -36,20 +39,24 @@ public final class DatabaseBackendTest {
     }
 
     private DatabaseBackend openBackend() {
-        return new DatabaseBackend(key -> directory);
+        return new DatabaseBackend(this::userDirectory);
     }
 
-    private static StoreAddress key(int scope, String owner, String namespace, String key) {
-        return new StoreAddress(Wire.DATABASE, scope, 0, owner, namespace, key);
+    private File userDirectory(StoreAddress key) {
+        return new File(directory, Integer.toString(key.userId));
+    }
+
+    private static StoreAddress key(int scope, String owner, String key) {
+        return new StoreAddress(Wire.DATABASE, scope, 0, owner, key);
     }
 
     private static StoreAddress key(String name) {
-        return key(Wire.USER_DE, OWNER, NAMESPACE, name);
+        return key(Wire.USER_DE, OWNER, name);
     }
 
     private SQLiteDatabase openRaw(StoreAddress key) {
         backend.read(key); // Initialize the production schema before staging a fixture.
-        File file = new File(directory, DatabaseBackend.fileName(key));
+        File file = new File(userDirectory(key), DatabaseBackend.fileName(key));
         return SQLiteDatabase.openDatabase(file.getPath(), null, SQLiteDatabase.OPEN_READWRITE);
     }
 
@@ -59,11 +66,11 @@ public final class DatabaseBackendTest {
             try {
                 for (int i = 0; i < count; i++) {
                     String id = String.format(Locale.ROOT, "%05d", i) + suffix;
-                    db.execSQL("INSERT INTO kv VALUES (?,?,?,?,?,?,?,?)", new Object[]{
-                            OWNER, NAMESPACE, id, value.schemaId, value.schemaVersion,
+                    db.execSQL("INSERT INTO kv VALUES (?,?,?,?,?,?,?)", new Object[]{
+                            OWNER, id, value.schemaId, value.schemaVersion,
                             value.encoding, value.payload, i + 1});
                 }
-                db.execSQL("INSERT INTO nsrev VALUES (?,?,?)", new Object[]{OWNER, NAMESPACE, count});
+                db.execSQL("INSERT INTO owner_rev VALUES (?,?)", new Object[]{OWNER, count});
                 db.setTransactionSuccessful();
             } finally {
                 db.endTransaction();
@@ -92,9 +99,9 @@ public final class DatabaseBackendTest {
         StoredValue metadata = new StoredValue("s".repeat(128), 1, "e".repeat(64), new byte[0], 0);
         String suffix = "k".repeat(175);
         // Calculate the fixture position independently from the quota implementation.
-        int perRecord = 256 + OWNER.length() + NAMESPACE.length() + 180 + 128 + 64;
-        int namespaceBytes = 256 + OWNER.length() + NAMESPACE.length();
-        int count = (8 * 1024 * 1024 - namespaceBytes) / perRecord;
+        int perRecord = 256 + OWNER.length() + 180 + 128 + 64;
+        int ownerBytes = 256 + OWNER.length();
+        int count = (8 * 1024 * 1024 - ownerBytes) / perRecord;
         seed(count, suffix, metadata);
         StoreAddress extra = key("extra" + suffix), first = key("00000" + suffix);
         assertEquals(Wire.QUOTA_EXCEEDED, backend.write(extra, metadata, Wire.UPSERT, -1).status);
@@ -105,25 +112,40 @@ public final class DatabaseBackendTest {
 
     @Test public void deScopesHaveSeparateDataAndQuota() {
         StoreAddress user = key("same");
-        StoreAddress device = key(Wire.DEVICE_DE, OWNER, NAMESPACE, "same");
+        StoreAddress device = key(Wire.DEVICE_DE, OWNER, "same");
         assertEquals(Wire.OK, backend.write(user, EMPTY, Wire.UPSERT, -1).status);
         assertNull(backend.read(device).value);
         assertEquals(Wire.OK, backend.write(device, EMPTY, Wire.IF_ABSENT, -1).status);
-        for (int i = 1; i < 64; i++) {
-            StoreAddress address = key(Wire.USER_DE, OWNER, "ns" + i, "key");
-            assertEquals(Wire.OK, backend.write(address, EMPTY, Wire.UPSERT, -1).status);
-            assertEquals(Wire.OK, backend.delete(address, 1).status);
-        }
-        assertEquals(Wire.QUOTA_EXCEEDED, backend.write(key(Wire.USER_DE, OWNER, "extra", "key"),
-                EMPTY, Wire.UPSERT, -1).status);
-        assertEquals(Wire.OK, backend.write(key(Wire.DEVICE_DE, OWNER, "extra", "key"),
-                EMPTY, Wire.UPSERT, -1).status);
+        StoreAddress next = key("next");
+        assertEquals(1, backend.read(next).revision);
+        assertEquals(Wire.OK, backend.delete(user, 1).status);
+        assertEquals(2, backend.read(next).revision);
+        assertEquals(Wire.CONFLICT, backend.write(next, EMPTY, Wire.IF_REVISION, 1).status);
+        assertEquals(1, backend.read(device).revision);
+        StoreAddress otherOwner = key(Wire.USER_DE, "com.example.other", "next");
+        assertEquals(0, backend.read(otherOwner).revision);
+        assertEquals(Wire.OK, backend.write(otherOwner, EMPTY, Wire.IF_REVISION, 0).status);
+        assertEquals(Wire.OK, backend.write(next, EMPTY, Wire.IF_REVISION, 2).status);
+    }
+
+    @Test public void androidUsersHaveIndependentRowsAndHighWater() {
+        StoreAddress user0 = key("same");
+        StoreAddress user10 = new StoreAddress(Wire.DATABASE, Wire.USER_DE, 10, OWNER, "same");
+        assertEquals(Wire.OK, backend.write(user0, EMPTY, Wire.IF_REVISION, 0).status);
+        assertEquals(0, backend.read(user10).revision);
+        assertEquals(Wire.OK, backend.write(user10, EMPTY, Wire.IF_REVISION, 0).status);
+        assertEquals(Wire.OK, backend.delete(user0, 1).status);
+        backend.close();
+        backend = openBackend();
+        assertEquals(2, backend.read(user0).revision);
+        assertNull(backend.read(user0).value);
+        assertEquals(1, backend.read(user10).value.revision);
     }
 
     @Test public void failedHighWaterWriteRollsBackValueAndQuota() {
         StoreAddress address = key("key");
         try (SQLiteDatabase db = openRaw(address)) {
-            db.execSQL("CREATE TRIGGER reject_revision BEFORE INSERT ON nsrev "
+            db.execSQL("CREATE TRIGGER reject_revision BEFORE INSERT ON owner_rev "
                     + "BEGIN SELECT RAISE(ABORT, 'test rollback'); END");
             assertThrows(SQLiteException.class, () -> backend.write(address, EMPTY, Wire.UPSERT, -1));
             assertNull(backend.read(address).value);

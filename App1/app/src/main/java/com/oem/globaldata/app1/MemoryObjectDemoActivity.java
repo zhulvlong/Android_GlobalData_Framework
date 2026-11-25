@@ -7,7 +7,7 @@ import com.oem.globaldata.contracts.DeviceConfig;
 import com.oem.globaldata.contracts.DeviceDataKeys;
 import com.oem.globaldata.ipc.Wire;
 
-/** App1 写入 内存暂存 · DeviceConfig 对象；授权属于 App1 的共享 namespace。 */
+/** App1 写入 内存暂存 · DeviceConfig 对象。 */
 public final class MemoryObjectDemoActivity extends DemoActivityBase {
     private ActivityMemoryObjectDemoBinding binding;
     /** App1/App2 从同一 Contracts AAR 取得完全相同的数据地址。 */

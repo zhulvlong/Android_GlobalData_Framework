@@ -6,7 +6,7 @@ import com.oem.globaldata.client.DataKey;
 import com.oem.globaldata.contracts.DeviceDataKeys;
 import com.oem.globaldata.ipc.Wire;
 
-/** App1 写入 文件持久化 · int 操作计数；授权属于 App1 的共享 namespace。 */
+/** App1 写入 文件持久化 · int 操作计数。 */
 public final class FileIntDemoActivity extends DemoActivityBase {
     private ActivityFileIntDemoBinding binding;
     /** App1/App2 从同一 Contracts AAR 取得完全相同的数据地址。 */

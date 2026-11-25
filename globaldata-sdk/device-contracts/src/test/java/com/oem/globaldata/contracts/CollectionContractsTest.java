@@ -176,8 +176,6 @@ public final class CollectionContractsTest {
                 assertEquals(Wire.USER_CE, normal.scope);
                 assertEquals(Wire.DEVICE_DE, platform.scope);
                 assertEquals(DeviceDataKeys.APP1_PACKAGE, normal.ownerPackage);
-                assertEquals(DeviceDataKeys.SHARED_NAMESPACE, normal.namespace);
-                assertEquals(DeviceDataKeys.SYSTEM_NAMESPACE, platform.namespace);
                 assertEquals(keys[type], normal.key);
                 assertEquals(normal.key, platform.key);
                 assertSame(codecs[type], normal.codec);

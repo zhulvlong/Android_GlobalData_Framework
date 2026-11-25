@@ -5,7 +5,7 @@ import com.oem.globaldata.ipc.IDataObserver;
 import com.oem.globaldata.ipc.IEventListener;
 
 /**
- * v1 稳定传输接口。Bundle 字段由 Wire.java 规定，只传地址、元信息和字节；
+ * v2 传输接口。Bundle 字段由 Wire.java 规定，只传地址、元信息和字节；
  * system_server 无需加载 App 的业务对象类。以下方法顺序参与 AIDL 事务编号，不可随意调整。
  */
 interface IGlobalDataTransport {
@@ -17,10 +17,10 @@ interface IGlobalDataTransport {
     Bundle write(in Bundle key, in Bundle value, int mode, long expectedRevision);
     /** 删除指定 Key；expectedRevision=-1 表示无条件，否则还需 key 中的 expectedEpoch。 */
     Bundle delete(in Bundle key, long expectedRevision);
-    /** 由真实 owner 为已安装目标包授予数据 namespace 或事件 topic 的权限位。 */
-    Bundle grant(in Bundle resource, String targetPackage, int rights);
-    /** 由真实 owner 撤销目标包在同一资源上的指定权限位。 */
-    Bundle revoke(in Bundle resource, String targetPackage, int rights);
+    /** 由真实 owner 为目标包授予完整 DataKey 的权限位。 */
+    Bundle grantData(in Bundle key, String targetPackage, int rights);
+    /** 由真实 owner 撤销目标包在完整 DataKey上的指定权限位。 */
+    Bundle revokeData(in Bundle key, String targetPackage, int rights);
     /** 仅注册单个 Key 的变化通知，返回正订阅 ID；失败返回 -1，不自动读取初始值。 */
     long subscribeData(in Bundle key, IDataObserver observer);
     /** 仅原订阅 UID 可用其 ID 取消数据监听。 */
@@ -31,6 +31,10 @@ interface IGlobalDataTransport {
     long subscribeEvent(in Bundle address, IEventListener observer);
     /** 仅原订阅 UID 可用其 ID 取消事件监听。 */
     void unsubscribeEvent(long subscriptionId);
+
+    /** 按完整 topic 为目标包授权或撤权。 */
+    Bundle grantEvent(in Bundle address, String targetPackage, int rights);
+    Bundle revokeEvent(in Bundle address, String targetPackage, int rights);
 
     /** 给指定对象范围授予单 Key 权限。 */
     Bundle grantDataAudience(in Bundle key, int audience, int rights);

@@ -33,7 +33,7 @@ public final class FileFloatDemoActivity extends DemoActivityBase {
     }
 
     private void write(float value) {
-        // 同一 namespace 授权覆盖三种 Store；READ 和 OBSERVE 都是 App2 监听所需。
+        // 为 App2 授予当前 Key 的 READ 与 OBSERVE，以便读取并监听该值。
         manager.grantData(key, DeviceDataKeys.APP2_PACKAGE, Wire.READ | Wire.OBSERVE)
                 .thenCompose(ignored -> manager.put(key, value))
                 .whenComplete((written, error) -> report("写入下载进度比例",

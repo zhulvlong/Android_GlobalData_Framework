@@ -1,6 +1,6 @@
 # GlobalData SDK
 
-此目录是独立 Android Studio/Gradle 工程。当前 Maven 版本为 `4.1.0`。逐接口说明和 App1/App2 最小示例见[客户端调用指南](客户端使用指南.md)；模块及系统边界见[当前架构说明](../架构设计说明.md)。
+此目录是独立 Android Studio/Gradle 工程。当前 Maven 版本为 `5.0.0`。逐接口说明和 App1/App2 最小示例见[客户端调用指南](客户端使用指南.md)；模块及系统边界见[当前架构说明](../架构设计说明.md)。
 
 | 模块 | 职责 |
 |---|---|
@@ -17,4 +17,4 @@
 .\gradlew.bat :ipc:publishToMavenLocal :client:publishToMavenLocal :device-contracts:publishToMavenLocal
 ```
 
-发布后可依赖 `com.oem.globaldata:device-contracts:4.1.0`，其发布元数据传递依赖 `client` 与 `ipc`。新增业务对象、Codec、Key 或 Topic 时，重建 Contracts AAR 和使用它的 APK；改动 AIDL 或 `Wire` 需要同步 `aosp-patch` 并重新构建系统。2026-10-20 使用 JDK 17 的 Debug AAR 构建与 Client/Contracts 单元测试通过；构建器提示 AGP 8.6.1 对 API 36 未经当前版本正式支持。运行还需要目标设备镜像内真实的公开 Bridge 与 GlobalData 服务；本地 AAR/APK 编译不证明设备能力。
+发布后可依赖 `com.oem.globaldata:device-contracts:5.0.0`，其发布元数据传递依赖 `client` 与 `ipc`。新增业务对象、Codec、Key 或 Topic 时，重建 Contracts AAR 和使用它的 APK；改动 AIDL 或 `Wire` 需要同步 `aosp-patch` 并重新构建系统。使用 JDK 17 执行 Client/Contracts 单元测试；构建器提示 AGP 8.6.1 对 API 36 未经当前版本正式支持。运行还需要目标设备镜像内真实的公开 Bridge 与 GlobalData 服务；本地 AAR/APK 编译不证明设备能力。

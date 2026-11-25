@@ -6,7 +6,7 @@ import com.oem.globaldata.client.DataKey;
 import com.oem.globaldata.contracts.DeviceDataKeys;
 import com.oem.globaldata.ipc.Wire;
 
-/** App1 写入 内存暂存 · boolean 通知开关；授权属于 App1 的共享 namespace。 */
+/** App1 写入 内存暂存 · boolean 通知开关。 */
 public final class MemoryBooleanDemoActivity extends DemoActivityBase {
     private ActivityMemoryBooleanDemoBinding binding;
     /** App1/App2 从同一 Contracts AAR 取得完全相同的数据地址。 */

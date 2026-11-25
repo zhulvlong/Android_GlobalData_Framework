@@ -321,7 +321,7 @@ public final class GlobalDataManager implements AutoCloseable {
         }, io);
     }
     /**
-     * 无条件删除；不存在视为正常完成，成功删除时推进 namespace revision。
+     * 无条件删除；不存在视为正常完成，成功删除时推进同一 owner 地址的高水位。
      * @param key 要删除的地址
      * @return 删除后的版本，或不存在时的当前版本高水位
      */
@@ -361,46 +361,44 @@ public final class GlobalDataManager implements AutoCloseable {
             return removed;
         } catch (RemoteException e) { onDeath(); throw failed(e); }
     }
-    /** grant/revoke 共用的后台 Binder 路径；服务端根据真实调用 UID 判断是否 owner。 */
-    private void aclBlocking(Bundle resource, String targetPackage, int rights, boolean grant) {
+    /** 通过独立的数据和事件入口发送请求，服务端用真实 UID 核对 owner。 */
+    private void aclBlocking(Bundle address, String targetPackage, int rights, boolean data,
+                             boolean grant) {
         background();
-        long started = System.nanoTime();
-        TLog.d(TAG, (grant ? "grant" : "revoke") + " resource=" + resource.getInt(Wire.RESOURCE)
-                + " scope=" + resource.getInt(Wire.SCOPE) + " owner=" + resource.getString(Wire.OWNER)
-                + " name=" + (resource.getInt(Wire.RESOURCE) == Wire.RESOURCE_DATA
-                        ? resource.getString(Wire.NAMESPACE) : resource.getString(Wire.TOPIC))
-                + " target=" + targetPackage + " rights=" + rights);
         try {
-            check(grant ? transport().grant(resource, targetPackage, rights)
-                        : transport().revoke(resource, targetPackage, rights));
-            TLog.d(TAG, (grant ? "grant" : "revoke") + " result status=" + Wire.OK
-                    + " ms=" + ((System.nanoTime() - started) / 1_000_000L));
-        }
-        catch (RemoteException e) { onDeath(); throw failed(e); }
+            IGlobalDataTransport service = transport();
+            if (data) {
+                check(grant ? service.grantData(address, targetPackage, rights)
+                        : service.revokeData(address, targetPackage, rights));
+            } else {
+                check(grant ? service.grantEvent(address, targetPackage, rights)
+                        : service.revokeEvent(address, targetPackage, rights));
+            }
+        } catch (RemoteException e) { onDeath(); throw failed(e); }
     }
-    /** 单目标授权和撤销都在 manager 的串行 I/O 队列执行。 */
-    private CompletableFuture<Void> acl(Bundle resource, String targetPackage, int rights, boolean grant) {
-        return CompletableFuture.runAsync(() -> aclBlocking(resource, targetPackage, rights, grant), io);
+
+    private CompletableFuture<Void> acl(Bundle address, String targetPackage, int rights,
+                                        boolean data, boolean grant) {
+        return CompletableFuture.runAsync(
+                () -> aclBlocking(address, targetPackage, rights, data, grant), io);
     }
+
     /**
-     * 给目标包授予数据权限。传入 Key 只用于定位 scope/owner/namespace；
-     * 授权覆盖该 namespace 下三个 Store 的所有 Key，目标包须已安装。
-     * @param key 指定授权分组的任意 DataKey
+     * 为已安装目标包授予指定 Key 的权限。DEVICE_DE 授权在该包以相同签名安装的各用户下生效。
+     * @param key 要授权的完整 DataKey
      * @param targetPackage 被授权包名，服务端绑定其当前签名
      * @param rights Wire.READ/WRITE/DELETE/OBSERVE 的按位或结果
      * @return 授权持久化成功时正常完成的 Future
      */
     public CompletableFuture<Void> grantData(DataKey<?> key, String targetPackage, int rights) {
-        // 资源类型显式标明为 namespace，而不是对单个 key 授权。
-        Bundle b = key.wire(); b.putInt(Wire.RESOURCE, Wire.RESOURCE_DATA);
-        return acl(b, targetPackage, rights, true);
+        return acl(key.wire(), targetPackage, rights, true, true);
     }
     /**
-     * 将同一组数据权限授予多个 App，适用于一个 namespace 需要共享给多个目标包的场景。
+     * 将同一条数据授予多个 App。
      * 此方法可从主线程调用，在 manager 的 I/O 队列按集合迭代顺序逐个授权；重复包名只调用一次。
      * 这不是原子事务：某个包授权失败时停止处理后续包，先前成功的授权仍然有效。
      * Future 由后台线程完成；界面更新需切回主线程，manager 用毕仍需关闭。
-     * @param key 指定 scope/owner/namespace 的任意 DataKey，同组所有 Store 和 Key 共用授权
+     * @param key 要授权的完整 DataKey
      * @param targetPackages 非空目标包集合；目标 App 均须已安装，调用期间修改原集合不影响已排队任务
      * @param rights 每个目标包相同的数据权限位，使用 Wire.READ/WRITE/DELETE/OBSERVE 按位或
      * @return 全部目标包授权成功后正常完成的 Future；服务端拒绝时异常包含出错包名和状态码
@@ -416,11 +414,11 @@ public final class GlobalDataManager implements AutoCloseable {
             if (targetPackage == null || targetPackage.isBlank())
                 throw new IllegalArgumentException("targetPackages contains an empty package name");
         }
-        Bundle resource = key.wire(); resource.putInt(Wire.RESOURCE, Wire.RESOURCE_DATA);
+        Bundle address = key.wire();
         // 整批操作占用同一个串行任务，调用方可以等待这个 Future 后再写入共享数据。
         return CompletableFuture.runAsync(() -> {
             for (String targetPackage : packages) {
-                try { aclBlocking(resource, targetPackage, rights, true); }
+                try { aclBlocking(address, targetPackage, rights, true, true); }
                 catch (GlobalDataException e) {
                     throw new GlobalDataException(e.status,
                             "grantData failed for " + targetPackage + ": " + e.getMessage(), e);
@@ -429,15 +427,14 @@ public final class GlobalDataManager implements AutoCloseable {
         }, io);
     }
     /**
-     * 从目标包移除数据 namespace 上的指定位，未移除的权限继续有效。
-     * @param key 指定 scope/owner/namespace 的地址
+     * 从目标包移除指定 Key 上的定向权限位，未移除的权限继续有效。
+     * @param key 要撤权的完整 DataKey
      * @param targetPackage 被撤销授权的包
      * @param rights 需要移除的 Wire 数据权限位
      * @return 撤销持久化成功时正常完成的 Future
      */
     public CompletableFuture<Void> revokeData(DataKey<?> key, String targetPackage, int rights) {
-        Bundle b = key.wire(); b.putInt(Wire.RESOURCE, Wire.RESOURCE_DATA);
-        return acl(b, targetPackage, rights, false);
+        return acl(key.wire(), targetPackage, rights, true, false);
     }
     private CompletableFuture<Void> changeDataAudience(
             DataKey<?> key, int audience, int rights, boolean grant) {
@@ -454,7 +451,7 @@ public final class GlobalDataManager implements AutoCloseable {
         }, io);
     }
 
-    /** 将一个 DEVICE_DE share Key 授权给所有 Android 用户下的已安装 App。Future 在规则持久化后完成。 */
+    /** 将一个 DEVICE_DE Key 授权给所有 Android 用户下的已安装 App。Future 在规则持久化后完成。 */
     public CompletableFuture<Void> grantDeviceDataAll(DataKey<?> key, int rights) {
         return changeDataAudience(key, Wire.AUDIENCE_DEVICE_ALL, rights, true);
     }
@@ -495,15 +492,14 @@ public final class GlobalDataManager implements AutoCloseable {
     }
 
     /**
-     * 针对完整 topic 授予发布和/或订阅权限，独立于数据 namespace 的授权。
+     * 针对完整 topic 授予发布和/或订阅权限，独立于数据 Key 的授权。
      * @param topic 事件地址
      * @param targetPackage 被授权包名
      * @param rights Wire.PUBLISH/SUBSCRIBE 的按位或结果
      * @return 授权结果 Future
      */
     public CompletableFuture<Void> grantEvent(EventTopic topic, String targetPackage, int rights) {
-        Bundle b = topic.wire(); b.putInt(Wire.RESOURCE, Wire.RESOURCE_EVENT);
-        return acl(b, targetPackage, rights, true);
+        return acl(topic.wire(), targetPackage, rights, false, true);
     }
     /**
      * 撤销目标包在完整 topic 上的指定位。
@@ -513,8 +509,7 @@ public final class GlobalDataManager implements AutoCloseable {
      * @return 撤销结果 Future
      */
     public CompletableFuture<Void> revokeEvent(EventTopic topic, String targetPackage, int rights) {
-        Bundle b = topic.wire(); b.putInt(Wire.RESOURCE, Wire.RESOURCE_EVENT);
-        return acl(b, targetPackage, rights, false);
+        return acl(topic.wire(), targetPackage, rights, false, false);
     }
     /**
      * 先注册单个 Key 的观察者，再主动读取当前值；后续通知也触发重新读取。
@@ -541,34 +536,31 @@ public final class GlobalDataManager implements AutoCloseable {
     /** @return 复用当前 manager 的无载荷事件门面，不新建 Binder 服务 */
     public GlobalEventBus events() { return new GlobalEventBus(this); }
     /**
-     * 固定 Memory Store 地址前缀，简化多次读写同一 namespace 的代码。
+     * 固定 Memory Store 地址前缀，简化多次读写同一 scope 和 owner 的代码。
      * @param scope 用户/设备作用域
-     * @param owner owner 包名
-     * @param namespace 数据授权分组
+     * @param ownerPackage owner 包名
      * @return Memory 便利门面
      */
-    public GlobalStore memory(int scope, String owner, String namespace) {
-        return new GlobalStore(this, Wire.MEMORY, scope, owner, namespace);
+    public GlobalStore memory(int scope, String ownerPackage) {
+        return new GlobalStore(this, Wire.MEMORY, scope, ownerPackage);
     }
     /**
      * 固定 File Store 地址前缀，服务端按 scope 把值保存到 DE/CE 目录。
      * @param scope 用户/设备作用域
-     * @param owner owner 包名
-     * @param namespace 数据授权分组
+     * @param ownerPackage owner 包名
      * @return File 便利门面
      */
-    public GlobalStore file(int scope, String owner, String namespace) {
-        return new GlobalStore(this, Wire.FILE, scope, owner, namespace);
+    public GlobalStore file(int scope, String ownerPackage) {
+        return new GlobalStore(this, Wire.FILE, scope, ownerPackage);
     }
     /**
      * 固定 Database Store 地址前缀，服务端在对应用户/作用域的 SQLite 中读写。
      * @param scope 用户/设备作用域
-     * @param owner owner 包名
-     * @param namespace 数据授权分组
+     * @param ownerPackage owner 包名
      * @return Database 便利门面
      */
-    public GlobalStore database(int scope, String owner, String namespace) {
-        return new GlobalStore(this, Wire.DATABASE, scope, owner, namespace);
+    public GlobalStore database(int scope, String ownerPackage) {
+        return new GlobalStore(this, Wire.DATABASE, scope, ownerPackage);
     }
     /** EventBus.post 的实际后台 Binder 调用；成功表示接受排队，事件不落盘。 */
     CompletableFuture<Void> post(EventTopic topic) {

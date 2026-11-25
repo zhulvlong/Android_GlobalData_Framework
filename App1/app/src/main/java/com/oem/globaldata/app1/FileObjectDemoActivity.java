@@ -7,7 +7,7 @@ import com.oem.globaldata.contracts.DeviceConfig;
 import com.oem.globaldata.contracts.DeviceDataKeys;
 import com.oem.globaldata.ipc.Wire;
 
-/** App1 写入 文件持久化 · DeviceConfig 对象；授权属于 App1 的共享 namespace。 */
+/** App1 写入 文件持久化 · DeviceConfig 对象。 */
 public final class FileObjectDemoActivity extends DemoActivityBase {
     private ActivityFileObjectDemoBinding binding;
     /** App1/App2 从同一 Contracts AAR 取得完全相同的数据地址。 */

@@ -21,7 +21,7 @@ public final class DataObserversTest {
     private static final String OWNER = "com.example.owner";
     private static final int UID = 10001;
     private static final StoreAddress KEY = new StoreAddress(Wire.MEMORY, Wire.USER_DE, 0,
-            OWNER, "share." + OWNER, "key");
+            OWNER, "key");
     private boolean identityUnavailable;
     private boolean ownsPackage = true;
     private DataObservers hub;
@@ -30,9 +30,10 @@ public final class DataObserversTest {
         AccessController acl = new AccessController(temp.newFolder(), new AccessController.Identities() {
             @Override public boolean platformSigned(int uid) { return false; }
             @Override public String signature(String name, int user) { return "a".repeat(64); }
+            @Override public String signatureInAnyUser(String name) { return signature(name, 0); }
             @Override public boolean userUnlocked(int user) { return true; }
             @Override public Integer installedAppFlags(String name, int uid, int userId) {
-                return null;
+                return ownsPackage && OWNER.equals(name) && uid == UID ? 0 : null;
             }
 
             @Override public String[] packagesForUid(int uid) {

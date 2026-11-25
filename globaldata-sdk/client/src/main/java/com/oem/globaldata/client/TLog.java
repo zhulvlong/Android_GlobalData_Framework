@@ -41,7 +41,7 @@ public final class TLog {
     public static String address(DataKey<?> key) {
         if (key == null) return "address=null";
         return "store=" + key.store + " scope=" + key.scope + " owner=" + key.ownerPackage
-                + " ns=" + key.namespace + " key=" + key.key;
+                + " key=" + key.key;
     }
 
     public static String address(EventTopic topic) {

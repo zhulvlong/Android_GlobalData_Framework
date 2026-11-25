@@ -69,7 +69,7 @@ public final class DatabaseListDemoActivity extends DemoActivityBase {
     }
 
     private <T> void submit(DataKey<T> key, T value, String type) {
-        // owner App1 先授予整个 namespace 的 READ/OBSERVE，再写入当前类型的 Key。
+        // 先授予用户选中类型对应的 Key，再写入它的值。
         manager.grantData(key, DeviceDataKeys.APP2_PACKAGE, Wire.READ | Wire.OBSERVE)
                 .thenCompose(ignored -> manager.put(key, value))
                 .whenComplete((written, error) -> report("List " + type,

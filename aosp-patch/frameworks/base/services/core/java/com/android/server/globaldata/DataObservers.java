@@ -105,7 +105,7 @@ final class DataObservers {
     void changed(StoreAddress key, int operation, long revision, String epoch) {
         TLog.d(TAG, "change " + TLog.address(key) + " operation=" + operation
                 + " revision=" + revision + " epoch=" + epoch);
-        // 1. 只筛选完全相同的 Store/Scope/User/Owner/Namespace/Key，不广播其他地址。
+        // 1. 只筛选完全相同的 Store/Scope/User/Owner/Key，不广播其他地址。
         for (Entry entry : entries.values()) {
             if (!entry.key.equals(key)) continue;
             try {
@@ -116,7 +116,7 @@ final class DataObservers {
                     // 4. 只发送元信息；客户端用 revision/epoch 判断是否需要重新读取。
                     Bundle event = new Bundle(); event.putInt(Wire.STORE, key.store);
                     event.putInt(Wire.SCOPE, key.scope); event.putString(Wire.OWNER, key.owner);
-                    event.putString(Wire.NAMESPACE, key.namespace); event.putString(Wire.KEY, key.key);
+                    event.putString(Wire.KEY, key.key);
                     event.putInt(Wire.OPERATION, operation); event.putLong(Wire.REVISION, revision);
                     event.putString(Wire.EPOCH, epoch);
                     try {

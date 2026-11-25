@@ -4,7 +4,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
 
 /**
- * 预先绑定 Store、Scope、owner 和 namespace 的便利入口。
+ * 预先绑定 Store、Scope 和 owner 的便利入口。
  * 每个方法仍通过同一个类型化 manager 工作，不会另建系统服务或独立缓存。
  */
 public final class GlobalStore {
@@ -15,26 +15,26 @@ public final class GlobalStore {
     /** 此门面固定的数据后端与设备/用户作用域。 */
     private final int store, scope;
     /** 此门面固定的资源管理者和授权分组。 */
-    private final String owner, namespace;
+    private final String owner;
     /** 由 manager.memory/file/database 创建，统一保存地址前缀。 */
-    GlobalStore(GlobalDataManager manager, int store, int scope, String owner, String namespace) {
+    GlobalStore(GlobalDataManager manager, int store, int scope, String owner) {
         this.manager = manager; this.store = store; this.scope = scope;
-        this.owner = owner; this.namespace = namespace;
+        this.owner = owner;
     }
     /**
      * 在固定前缀下定义一条有类型的数据地址。
-     * @param name namespace 内的 Key 名
+     * @param name Key 名
      * @param codec App 侧编解码约定
      * @return 可交给 manager 各类方法使用的 DataKey
      */
     public <T> DataKey<T> key(String name, ValueCodec<T> codec) {
         TLog.d(TAG, "key factory store=" + store + " scope=" + scope + " owner="
-                + owner + " ns=" + namespace + " key=" + name);
-        return DataKey.of(store, scope, owner, namespace, name, codec);
+                + owner + " key=" + name);
+        return DataKey.of(store, scope, owner, name, codec);
     }
     /**
      * 用 Codecs.INT 异步写入整数；可从任意线程调用，不应在主线程阻塞等待结果。
-     * @param name 当前 namespace 内的 Key 名
+     * @param name Key 名
      * @param value 要写入的整数
      * @return 成功时含 revision 和 epoch 的 Future；失败时 Future 异常完成
      */
@@ -43,7 +43,7 @@ public final class GlobalStore {
     }
     /**
      * 用 Codecs.INT 异步读取整数。
-     * @param name 当前 namespace 内的 Key 名
+     * @param name Key 名
      * @return int 快照 Future；不存在时 present=false
      */
     public CompletableFuture<DataSnapshot<Integer>> getInt(String name) {
@@ -51,7 +51,7 @@ public final class GlobalStore {
     }
     /**
      * 用 Codecs.LONG 异步写入 64 位整数；适合累计字节数等超出 int 的值。
-     * @param name 当前 namespace 内的 Key 名
+     * @param name Key 名
      * @param value 要写入的 long
      * @return 完成后含 revision 和 epoch 的 Future；可从主线程发起但不要阻塞等待
      */
@@ -68,7 +68,7 @@ public final class GlobalStore {
     }
     /**
      * 用 Codecs.FLOAT 异步写入 32 位浮点数，包含 IEEE 754 特殊值。
-     * @param name 当前 namespace 内的 Key 名
+     * @param name Key 名
      * @param value 要写入的 float
      * @return 异步写入结果；界面更新需由调用方切到主线程
      */
@@ -85,7 +85,7 @@ public final class GlobalStore {
     }
     /**
      * 用 Codecs.DOUBLE 异步写入 64 位浮点数，保留 -0.0 等位表示。
-     * @param name 当前 namespace 内的 Key 名
+     * @param name Key 名
      * @param value 要写入的 double
      * @return 异步写入结果；失败时 Future 异常完成
      */
@@ -102,7 +102,7 @@ public final class GlobalStore {
     }
     /**
      * 用 Codecs.STRING 异步写入 UTF-8 字符串。
-     * @param name 当前 namespace 内的 Key 名
+     * @param name Key 名
      * @param value 要写入的字符串
      * @return 异步写入结果 Future
      */
@@ -111,7 +111,7 @@ public final class GlobalStore {
     }
     /**
      * 用 Codecs.STRING 异步读取字符串。
-     * @param name 当前 namespace 内的 Key 名
+     * @param name Key 名
      * @return 解码后的字符串快照 Future
      */
     public CompletableFuture<DataSnapshot<String>> getString(String name) {

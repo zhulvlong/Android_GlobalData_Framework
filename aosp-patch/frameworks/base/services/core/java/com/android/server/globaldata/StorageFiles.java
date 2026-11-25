@@ -1,5 +1,6 @@
 package com.android.server.globaldata;
 
+import android.os.SELinux;
 import android.util.AtomicFile;
 import java.io.File;
 import java.io.FileOutputStream;
@@ -11,6 +12,17 @@ import java.nio.file.attribute.BasicFileAttributes;
 
 final class StorageFiles {
     private StorageFiles() {}
+
+    static void prepareDirectory(File dir) throws IOException {
+        if (dir.isDirectory()) return;
+        File firstCreated = dir;
+        while (firstCreated.getParentFile() != null && !firstCreated.getParentFile().isDirectory()) {
+            firstCreated = firstCreated.getParentFile();
+        }
+        Files.createDirectories(dir.toPath());
+        // 新建整个 v2 子树时，从首个新目录开始恢复标签，覆盖新建的父目录。
+        if (!SELinux.restoreconRecursive(firstCreated)) throw new IOException("storage directory label");
+    }
 
     static File sibling(AtomicFile file, String suffix) {
         return new File(file.getBaseFile().getPath() + suffix);

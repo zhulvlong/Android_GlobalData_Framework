@@ -25,7 +25,7 @@ public final class FileBytesDemoActivity extends DemoActivityBase {
     }
 
     private void write(byte[] value) {
-        // App2 的 READ 与 OBSERVE 作用于共享 namespace，而非只作用于本 Key。
+        // 为 App2 授予当前 Key 的 READ 与 OBSERVE，以便读取并监听该值。
         manager.grantData(key, DeviceDataKeys.APP2_PACKAGE, Wire.READ | Wire.OBSERVE)
                 .thenCompose(ignored -> manager.put(key, value))
                 .whenComplete((written, error) -> report("写入原始字节",
